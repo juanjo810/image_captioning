@@ -23,6 +23,8 @@ def bbox_area(bbox: list[float]) -> float:
 
 
 def area_ratio(bbox: list[float], width: int, height: int) -> float:
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive")
     return bbox_area(bbox) / float(width * height)
 
 
@@ -71,3 +73,39 @@ def salience(bbox: list[float], conf: float, width: int, height: int) -> float:
     central_bonus = 0.15 if is_central(bbox, width, height) else 0.0
     score = 0.65 * conf + 0.35 * min(ratio / 0.35, 1.0) + central_bonus
     return min(score, 1.0)
+
+
+def entity_geometry(det: Detection, entity_id: str, width: int, height: int) -> dict:
+    """Compute all deterministic geometry fields for a detection."""
+    ratio = area_ratio(det.bbox, width, height)
+    return {
+        "id": entity_id,
+        "label": det.label.strip().lower().replace("_", " "),
+        "bbox": [float(v) for v in det.bbox],
+        "confidence": float(det.confidence),
+        "bbox_area_ratio": float(ratio),
+        "relative_size": relative_size(ratio),
+        "position_coarse": position_coarse(det.bbox, width, height),
+        "is_central": is_central(det.bbox, width, height),
+        "salience_score": float(salience(det.bbox, det.confidence, width, height)),
+        "source": det.source,
+    }
+
+
+def compute_global_geometry(entities_extended: list[dict]) -> dict:
+    """Compute global image-level geometry proxies.
+
+    This intentionally avoids segmentation and uses only boxes.
+    total_object_coverage is a proxy and can overestimate coverage when boxes overlap.
+    """
+    total_coverage = min(sum(e["bbox_area_ratio"] for e in entities_extended), 1.0)
+    human_entities = [e for e in entities_extended if e["label"] in {"person", "man", "woman", "child", "human"}]
+    human_coverage = min(sum(e["bbox_area_ratio"] for e in human_entities), 1.0)
+    density = min(len(entities_extended) / 20.0, 1.0)
+
+    return {
+        "total_object_coverage": float(total_coverage),
+        "human_count": len(human_entities),
+        "human_coverage_ratio": float(human_coverage),
+        "object_density_proxy": float(density),
+    }
