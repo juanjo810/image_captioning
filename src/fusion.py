@@ -6,6 +6,32 @@ from src.schemas import (
 from src.captioning import build_caption
 
 
+CATEGORY_MAP = {
+    "person": "human",
+    "man": "human",
+    "woman": "human",
+    "child": "human",
+    "horse": "animal",
+    "dog": "animal",
+    "cat": "animal",
+    "tree": "vegetation",
+    "plant": "vegetation",
+    "building": "structure",
+    "house": "structure",
+    "cart": "vehicle",
+    "car": "vehicle",
+    "bicycle": "vehicle",
+    "basket": "tool",
+    "tool": "tool",
+    "bread": "food",
+    "food": "food",
+}
+
+
+def category_from_label(label: str) -> str:
+    return CATEGORY_MAP.get(label.strip().lower().replace("_", " "), "object")
+
+
 def match_bbox(bbox, entities_ext):
     best_id = None
     best_iou = 0.0
@@ -19,6 +45,25 @@ def match_bbox(bbox, entities_ext):
     return best_id if best_iou > 0.2 else None
 
 
+def strip_extended_schema_fields(entity_geom: dict) -> dict:
+    """Keep only fields allowed by EntityExtended.
+
+    Geometry internally keeps label/confidence because fusion needs them, but the
+    EXTENDED JSON schema intentionally stores only geometry-related fields.
+    """
+    allowed = {
+        "id",
+        "bbox",
+        "bbox_area_ratio",
+        "relative_size",
+        "position_coarse",
+        "is_central",
+        "salience_score",
+        "source",
+    }
+    return {key: value for key, value in entity_geom.items() if key in allowed}
+
+
 def build_from_modules(
     image_id,
     width,
@@ -28,27 +73,27 @@ def build_from_modules(
     scene_conf,
     hoi
 ):
-    entities_ext = []
+    entity_records = []
 
     for i, det in enumerate(detections):
-        entities_ext.append(entity_geometry(det, f"e{i+1}", width, height))
+        entity_records.append(entity_geometry(det, f"e{i+1}", width, height))
 
-    global_geom = compute_global_geometry(entities_ext)
+    global_geom = compute_global_geometry(entity_records)
 
     entities = [
         Entity(
             id=e["id"],
             label=e["label"],
-            category="object",
+            category=category_from_label(e["label"]),
             confidence=e["confidence"]
         )
-        for e in entities_ext
+        for e in entity_records
     ]
 
     interactions = []
     for h in hoi:
-        sid = match_bbox(h["human_bbox"], entities_ext)
-        oid = match_bbox(h["object_bbox"], entities_ext)
+        sid = match_bbox(h["human_bbox"], entity_records)
+        oid = match_bbox(h["object_bbox"], entity_records)
 
         if sid and oid:
             interactions.append(
@@ -78,7 +123,7 @@ def build_from_modules(
     )
 
     extended = ExtendedJSON(
-        entities_extended=entities_ext,
+        entities_extended=[strip_extended_schema_fields(e) for e in entity_records],
         global_geometry=global_geom
     )
 
