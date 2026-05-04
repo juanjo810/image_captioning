@@ -76,7 +76,9 @@ def build_from_modules(
     entity_records = []
 
     for i, det in enumerate(detections):
-        entity_records.append(entity_geometry(det, f"e{i+1}", width, height))
+        rec = entity_geometry(det, f"e{i+1}", width, height)
+        rec["category"] = category_from_label(rec["label"])
+        entity_records.append(rec)
 
     global_geom = compute_global_geometry(entity_records)
 
@@ -105,8 +107,15 @@ def build_from_modules(
                 )
             )
 
+    human_count = global_geom["category_counts"].get("human", 0)
+
+    crowd_level = (
+        "empty" if human_count == 0 else
+        "sparse" if human_count <= 2 else
+        "moderate"
+    )
     env = Environment(
-        crowd_level="sparse" if global_geom["human_count"] <= 2 else "moderate",
+        crowd_level=crowd_level,
         activity_level="low" if not interactions else "medium",
         lighting="unknown"
     )

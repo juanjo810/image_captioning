@@ -92,20 +92,23 @@ def entity_geometry(det: Detection, entity_id: str, width: int, height: int) -> 
     }
 
 
-def compute_global_geometry(entities_extended: list[dict]) -> dict:
-    """Compute global image-level geometry proxies.
+def compute_global_geometry(entities: list[dict]) -> dict:
+    counts = {}
+    coverage = {}
+    total_coverage = 0.0
 
-    This intentionally avoids segmentation and uses only boxes.
-    total_object_coverage is a proxy and can overestimate coverage when boxes overlap.
-    """
-    total_coverage = min(sum(e["bbox_area_ratio"] for e in entities_extended), 1.0)
-    human_entities = [e for e in entities_extended if e["label"] in {"person", "man", "woman", "child", "human"}]
-    human_coverage = min(sum(e["bbox_area_ratio"] for e in human_entities), 1.0)
-    density = min(len(entities_extended) / 20.0, 1.0)
+    for e in entities:
+        # ⚠️ categoría viene de fusion (no de geometry)
+        cat = e.get("category", "object")
+
+        counts[cat] = counts.get(cat, 0) + 1
+        coverage[cat] = coverage.get(cat, 0.0) + e["bbox_area_ratio"]
+
+        total_coverage += e["bbox_area_ratio"]
 
     return {
-        "total_object_coverage": float(total_coverage),
-        "human_count": len(human_entities),
-        "human_coverage_ratio": float(human_coverage),
-        "object_density_proxy": float(density),
+        "total_object_coverage": min(total_coverage, 1.0),
+        "object_density_proxy": min(len(entities) / 20.0, 1.0),
+        "category_counts": counts,
+        "category_coverage": coverage
     }

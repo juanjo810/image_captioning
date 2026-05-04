@@ -77,8 +77,8 @@ class EntityExtended(StrictBaseModel):
 class GlobalGeometry(StrictBaseModel):
     total_object_coverage: float = Field(ge=0.0, le=1.0)
     object_density_proxy: float = Field(ge=0.0, le=1.0)
-    category_counts: Dict[str, int]
-    category_coverage: Dict[str, float]
+    category_counts: dict[str, int]
+    category_coverage: dict[str, float]
 
 
 class ExtendedJSON(StrictBaseModel):
