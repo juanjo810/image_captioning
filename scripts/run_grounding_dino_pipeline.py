@@ -20,6 +20,8 @@ from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
 
 from src.workflow_b.vocabularies import TRADITIONAL_ENVIRONMENT_VOCAB, build_prompt
 
+from src.postprocessing import filter_detections
+
 
 def main() -> None:
     base = Path("/home/jovyan/projects")
@@ -32,11 +34,19 @@ def main() -> None:
 
     print(type(TRADITIONAL_ENVIRONMENT_VOCAB))
     prompt = build_prompt(TRADITIONAL_ENVIRONMENT_VOCAB)
-    detections = adapter.predict(
+    raw_detections  = adapter.predict(
         image_path=image_path,
         prompt=prompt,
         box_threshold=0.30,
         text_threshold=0.25,
+    )
+
+    detections = filter_detections(
+        raw_detections,
+        min_confidence=0.30,
+        nms_iou_threshold=0.85,
+        semantic_iou_threshold=0.30,
+        semantic_containment_threshold=0.65,
     )
 
     with Image.open(image_path) as img:
