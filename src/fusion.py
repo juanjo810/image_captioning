@@ -7,22 +7,42 @@ from src.captioning import build_caption
 
 
 CATEGORY_MAP = {
+    # humans
     "person": "human",
     "man": "human",
     "woman": "human",
     "child": "human",
+
+    # animals
     "horse": "animal",
     "dog": "animal",
     "cat": "animal",
+    "donkey": "animal",
+    "cow": "animal",
+    "sheep": "animal",
+
+    # vegetation
     "tree": "vegetation",
     "plant": "vegetation",
+
+    # structures
     "building": "structure",
     "house": "structure",
+
+    # vehicles
     "cart": "vehicle",
+    "wagon": "vehicle",
+    "cart wagon": "vehicle",
     "car": "vehicle",
     "bicycle": "vehicle",
+
+    # tools / objects
     "basket": "tool",
     "tool": "tool",
+    "chair": "object",
+    "table": "object",
+
+    # food
     "bread": "food",
     "food": "food",
 }
@@ -46,11 +66,6 @@ def match_bbox(bbox, entities_ext):
 
 
 def strip_extended_schema_fields(entity_geom: dict) -> dict:
-    """Keep only fields allowed by EntityExtended.
-
-    Geometry internally keeps label/confidence because fusion needs them, but the
-    EXTENDED JSON schema intentionally stores only geometry-related fields.
-    """
     allowed = {
         "id",
         "bbox",
