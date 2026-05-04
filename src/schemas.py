@@ -1,42 +1,24 @@
-"""Pydantic schemas for Image -> Structured Semantic Representation.
-
-The CORE schema is shared by Workflow A (direct VLM) and Workflow B
-(modular vision pipeline). The EXTENDED schema is mainly intended for
-Workflow B, where bounding boxes and deterministic geometry are available.
-"""
+"""Pydantic schemas for Image -> Structured Semantic Representation."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Dict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 EntityCategory = Literal[
-    "human",
-    "animal",
-    "object",
-    "structure",
-    "vehicle",
-    "vegetation",
-    "tool",
-    "food",
-    "other",
+    "human","animal","object","structure","vehicle","vegetation","tool","food","other",
 ]
 
-IndoorOutdoor = Literal["indoor", "outdoor", "mixed", "unknown"]
-CrowdLevel = Literal["empty", "sparse", "moderate", "dense", "unknown"]
-ActivityLevel = Literal["low", "medium", "high", "unknown"]
-LightingLevel = Literal["bright", "moderate", "dim", "unknown"]
-RelativeSize = Literal["tiny", "small", "medium", "large", "dominant"]
+IndoorOutdoor = Literal["indoor","outdoor","mixed","unknown"]
+CrowdLevel = Literal["empty","sparse","moderate","dense","unknown"]
+ActivityLevel = Literal["low","medium","high","unknown"]
+LightingLevel = Literal["bright","moderate","dim","unknown"]
+RelativeSize = Literal["tiny","small","medium","large","dominant"]
 
 
 class StrictBaseModel(BaseModel):
-    """Base model that rejects unexpected fields.
-
-    This is useful for evaluation because it prevents silent JSON drift.
-    """
-
     model_config = ConfigDict(extra="forbid")
 
 
@@ -65,11 +47,6 @@ class ObservedInteraction(StrictBaseModel):
     object_id: str = Field(pattern=r"^e[0-9]+$")
     confidence: float = Field(ge=0.0, le=1.0)
 
-    @field_validator("verb")
-    @classmethod
-    def normalize_verb(cls, value: str) -> str:
-        return value.strip().lower().replace("_", " ")
-
 
 class Environment(StrictBaseModel):
     crowd_level: CrowdLevel = "unknown"
@@ -96,28 +73,14 @@ class EntityExtended(StrictBaseModel):
     salience_score: float = Field(ge=0.0, le=1.0)
     source: str = Field(min_length=1)
 
-    @field_validator("bbox")
-    @classmethod
-    def validate_bbox(cls, value: list[float]) -> list[float]:
-        x1, y1, x2, y2 = value
-        if x2 <= x1 or y2 <= y1:
-            raise ValueError("bbox must satisfy x2 > x1 and y2 > y1")
-        return [float(v) for v in value]
-
 
 class GlobalGeometry(StrictBaseModel):
     total_object_coverage: float = Field(ge=0.0, le=1.0)
-    human_count: int = Field(ge=0)
-    human_coverage_ratio: float = Field(ge=0.0, le=1.0)
     object_density_proxy: float = Field(ge=0.0, le=1.0)
+    category_counts: Dict[str, int]
+    category_coverage: Dict[str, float]
 
 
 class ExtendedJSON(StrictBaseModel):
     entities_extended: list[EntityExtended] = Field(default_factory=list)
     global_geometry: GlobalGeometry
-
-
-class FullOutput(StrictBaseModel):
-    core: CoreJSON
-    extended: ExtendedJSON | None = None
-    metadata: dict = Field(default_factory=dict)
