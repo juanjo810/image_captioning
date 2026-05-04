@@ -18,6 +18,8 @@ from PIL import Image
 from src.fusion import build_from_modules
 from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
 
+from src.workflow_b.vocabularies import TRADITIONAL_ENVIRONMENT_VOCAB, build_prompt
+
 
 def main() -> None:
     base = Path("/home/jovyan/projects")
@@ -28,7 +30,8 @@ def main() -> None:
         checkpoint_path=base / "models/groundingdino_swint_ogc.pth",
     )
 
-    prompt = "person, horse, cart, basket, tree, building, house, dog, cat, table, chair"
+    print(type(TRADITIONAL_ENVIRONMENT_VOCAB))
+    prompt = build_prompt(TRADITIONAL_ENVIRONMENT_VOCAB)
     detections = adapter.predict(
         image_path=image_path,
         prompt=prompt,
