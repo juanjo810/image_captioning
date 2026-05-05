@@ -52,6 +52,37 @@ def category_from_label(label: str) -> str:
     return CATEGORY_MAP.get(label.strip().lower().replace("_", " "), "object")
 
 
+def aggregate_core_entities(entity_records: list[dict]) -> list[Entity]:
+    """Aggregate instance-level detections into CORE semantic entities.
+
+    EXTENDED keeps individual boxes. CORE should represent semantic entities
+    compactly, with count_estimate summarizing how many instances were detected.
+    """
+    grouped: dict[tuple[str, str], list[dict]] = {}
+
+    for record in entity_records:
+        label = record["label"].strip().lower().replace("_", " ")
+        category = record["category"]
+        grouped.setdefault((label, category), []).append(record)
+
+    entities: list[Entity] = []
+
+    for idx, ((label, category), records) in enumerate(grouped.items(), start=1):
+        confidence = max(r["confidence"] for r in records)
+
+        entities.append(
+            Entity(
+                id=f"e{idx}",
+                label=label,
+                category=category,
+                count_estimate=len(records),
+                confidence=confidence,
+            )
+        )
+
+    return entities
+
+
 def match_bbox(bbox, entities_ext):
     best_id = None
     best_iou = 0.0
@@ -68,6 +99,9 @@ def match_bbox(bbox, entities_ext):
 def strip_extended_schema_fields(entity_geom: dict) -> dict:
     allowed = {
         "id",
+        "label",
+        "category",
+        "confidence",
         "bbox",
         "bbox_area_ratio",
         "relative_size",
@@ -97,15 +131,7 @@ def build_from_modules(
 
     global_geom = compute_global_geometry(entity_records)
 
-    entities = [
-        Entity(
-            id=e["id"],
-            label=e["label"],
-            category=category_from_label(e["label"]),
-            confidence=e["confidence"]
-        )
-        for e in entity_records
-    ]
+    entities = aggregate_core_entities(entity_records)
 
     interactions = []
     for h in hoi:

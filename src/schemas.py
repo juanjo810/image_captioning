@@ -65,6 +65,9 @@ class CoreJSON(StrictBaseModel):
 
 class EntityExtended(StrictBaseModel):
     id: str = Field(pattern=r"^e[0-9]+$")
+    label: str = Field(min_length=1)
+    category: EntityCategory
+    confidence: float = Field(ge=0.0, le=1.0)
     bbox: list[float] = Field(min_length=4, max_length=4)
     bbox_area_ratio: float = Field(ge=0.0, le=1.0)
     relative_size: RelativeSize
