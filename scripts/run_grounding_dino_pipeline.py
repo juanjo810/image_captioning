@@ -21,8 +21,8 @@ from src.postprocessing import filter_detections
 from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
 from src.workflow_b.places365_adapter import Places365Adapter
 from src.workflow_b.vocabularies import (
-    build_grounding_prompt_for_scene,
     infer_indoor_outdoor_from_scene,
+    iter_universal_prompt_batches
 )
 
 
@@ -100,23 +100,37 @@ def main() -> None:
         topk=5,
     )
 
-    prompt = build_grounding_prompt_for_scene(scene["label"])
-    print("Prompt generado: ",prompt)
+    raw_detections = []
 
-    raw_detections = detector.predict(
-        image_path=image_path,
-        prompt=prompt,
-        box_threshold=args.box_threshold,
-        text_threshold=args.text_threshold,
-    )
+    for batch in iter_universal_prompt_batches():
+        batch_detections = detector.predict(
+            image_path=image_path,
+            prompt=batch["prompt"],
+            box_threshold=batch["box_threshold"],
+            text_threshold=batch["text_threshold"],
+        )
+
+        print(f"\nRAW DETECTIONS [{batch['name']}]")
+        for d in batch_detections:
+            print(
+                d.label,
+                round(d.confidence, 3),
+                [round(x, 1) for x in d.bbox],
+            )
+
+        raw_detections.extend(batch_detections)
 
     detections = filter_detections(
         raw_detections,
         min_confidence=args.min_confidence,
         nms_iou_threshold=0.85,
-        semantic_iou_threshold=0.10,
-        semantic_containment_threshold=0.40,
+        semantic_iou_threshold=0.30,
+        semantic_containment_threshold=0.65,
     )
+
+    print("FILTERED DETECTIONS")
+    for d in detections:
+        print(d.label, round(d.confidence, 3), [round(x, 1) for x in d.bbox])
 
     with Image.open(image_path) as img:
         width, height = img.size

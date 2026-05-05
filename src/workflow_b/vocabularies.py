@@ -189,6 +189,9 @@ CORE_OBJECT_VOCAB = [
     "house",
     "building",
     "fence",
+    "car",
+    "bus",
+    "truck"
 ]
 
 RURAL_OBJECT_VOCAB = [
@@ -327,3 +330,100 @@ def select_grounding_vocab(scene_label: str | None = None) -> list[str]:
 def build_grounding_prompt_for_scene(scene_label: str | None = None) -> str:
     vocab = select_grounding_vocab(scene_label)
     return build_prompt(vocab)
+
+
+UNIVERSAL_GROUNDING_PROMPT_BATCHES = {
+    "humans": {
+        "terms": [
+            "person",
+            "man",
+            "woman",
+            "child",
+        ],
+        "box_threshold": 0.20,
+        "text_threshold": 0.20,
+    },
+    "animals": {
+        "terms": [
+            "animal",
+            "horse",
+            "donkey",
+            "cow",
+            "sheep",
+            "dog",
+            "cat",
+            "bird",
+        ],
+        "box_threshold": 0.25,
+        "text_threshold": 0.20,
+    },
+    "vehicles_structures": {
+        "terms": [
+            "car",
+            "cart",
+            "wagon",
+            "bicycle",
+            "tram",
+            "bus",
+            "building",
+            "house",
+            "church",
+            "wall",
+            "fence",
+            "street lamp",
+        ],
+        "box_threshold": 0.30,
+        "text_threshold": 0.25,
+    },
+    "nature_terrain": {
+        "terms": [
+            "tree",
+            "plant",
+            "grass",
+            "water",
+            "road",
+            "street",
+            "path",
+            "rock",
+            "sky",
+        ],
+        "box_threshold": 0.30,
+        "text_threshold": 0.25,
+    },
+    "objects": {
+        "terms": [
+            "table",
+            "chair",
+            "basket",
+            "tool",
+            "bag",
+            "umbrella",
+            "bench",
+            "food",
+            "fruit",
+            "vegetables",
+            "wheelchair",
+        ],
+        "box_threshold": 0.30,
+        "text_threshold": 0.25,
+    },
+}
+
+
+def build_prompt_from_terms(terms: list[str]) -> str:
+    return ", ".join(terms)
+
+
+def iter_universal_prompt_batches():
+    """Yield reproducible open-vocabulary detection batches.
+
+    Batching avoids very long prompts and improves recall for small or frequent
+    entities such as people in street scenes.
+    """
+    for batch_name, batch in UNIVERSAL_GROUNDING_PROMPT_BATCHES.items():
+        yield {
+            "name": batch_name,
+            "prompt": build_prompt_from_terms(batch["terms"]),
+            "box_threshold": batch["box_threshold"],
+            "text_threshold": batch["text_threshold"],
+        }

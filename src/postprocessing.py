@@ -81,11 +81,16 @@ def suppress_semantic_aliases(
             if det_group is None or det_group != existing_group:
                 continue
 
-            same_region = (
-                bbox_iou(det.bbox, existing.bbox) >= iou_threshold
-                or containment_ratio(det.bbox, existing.bbox) >= containment_threshold
-                or containment_ratio(existing.bbox, det.bbox) >= containment_threshold
-            )
+            if det_group == "human":
+                # For humans we only suppress almost-identical boxes.
+                # This avoids deleting different people in crowded scenes.
+                same_region = bbox_iou(det.bbox, existing.bbox) >= 0.75
+            else:
+                same_region = (
+                    bbox_iou(det.bbox, existing.bbox) >= iou_threshold
+                    or containment_ratio(det.bbox, existing.bbox) >= containment_threshold
+                    or containment_ratio(existing.bbox, det.bbox) >= containment_threshold
+    )
 
             if same_region:
                 should_remove = True
