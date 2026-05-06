@@ -22,7 +22,7 @@ from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
 from src.workflow_b.places365_adapter import Places365Adapter
 from src.workflow_b.vocabularies import (
     infer_indoor_outdoor_from_scene,
-    iter_universal_prompt_batches
+    iter_grounding_prompt_batches
 )
 
 
@@ -102,7 +102,7 @@ def main() -> None:
 
     raw_detections = []
 
-    for batch in iter_universal_prompt_batches():
+    for batch in iter_grounding_prompt_batches():
         batch_detections = detector.predict(
             image_path=image_path,
             prompt=batch["prompt"],

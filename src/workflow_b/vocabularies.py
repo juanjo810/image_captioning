@@ -106,6 +106,114 @@ URBAN_TRANSPORT_SCENES = {
     "highway",
 }
 
+COASTAL_WATER_SCENES = {
+    "beach",
+    "coast",
+    "ocean",
+    "harbor",
+    "pier",
+    "canal natural",
+    "canal urban",
+    "lagoon",
+    "lake natural",
+    "river",
+    "creek",
+    "pond",
+    "waterfall",
+    "watering hole",
+    "boathouse",
+    "boat deck",
+}
+
+PUBLIC_INDOOR_SCENES = {
+    "auditorium",
+    "atrium public",
+    "banquet hall",
+    "conference center",
+    "conference room",
+    "lobby",
+    "waiting room",
+    "library indoor",
+    "museum indoor",
+    "stage indoor",
+    "restaurant",
+    "cafeteria",
+    "bar",
+    "pub indoor",
+}
+
+EDUCATION_HEALTH_OFFICE_SCENES = {
+    "classroom",
+    "kindergarden classroom",
+    "lecture room",
+    "office",
+    "office cubicles",
+    "computer room",
+    "hospital",
+    "hospital room",
+    "operating room",
+    "biology laboratory",
+    "chemistry lab",
+    "physics laboratory",
+}
+
+SPORTS_RECREATION_SCENES = {
+    "soccer field",
+    "football field",
+    "baseball field",
+    "stadium soccer",
+    "stadium football",
+    "stadium baseball",
+    "athletic field outdoor",
+    "playground",
+    "basketball court indoor",
+    "gymnasium indoor",
+    "ski slope",
+    "ski resort",
+    "swimming pool outdoor",
+    "swimming pool indoor",
+}
+
+INDUSTRIAL_WORKSHOP_SCENES = {
+    "assembly line",
+    "auto factory",
+    "construction site",
+    "industrial area",
+    "junkyard",
+    "landfill",
+    "engine room",
+    "repair shop",
+    "loading dock",
+    "hardware store",
+}
+
+GARDEN_PARK_SCENES = {
+    "botanical garden",
+    "formal garden",
+    "japanese garden",
+    "zen garden",
+    "topiary garden",
+    "roof garden",
+    "greenhouse outdoor",
+    "greenhouse indoor",
+    "patio",
+    "picnic area",
+    "gazebo exterior",
+}
+
+ENTERTAINMENT_CULTURE_SCENES = {
+    "amphitheater",
+    "arena performance",
+    "ballroom",
+    "discotheque",
+    "movie theater indoor",
+    "music studio",
+    "orchestra pit",
+    "stage outdoor",
+    "art gallery",
+    "art studio",
+    "museum outdoor",
+}
 
 SCENE_GROUPS = {
     "rural_traditional": RURAL_TRADITIONAL_SCENES,
@@ -114,8 +222,15 @@ SCENE_GROUPS = {
     "religious_heritage": RELIGIOUS_HERITAGE_SCENES,
     "indoor_domestic": INDOOR_DOMESTIC_SCENES,
     "urban_transport": URBAN_TRANSPORT_SCENES,
-}
 
+    "coastal_water": COASTAL_WATER_SCENES,
+    "public_indoor": PUBLIC_INDOOR_SCENES,
+    "education_health_office": EDUCATION_HEALTH_OFFICE_SCENES,
+    "sports_recreation": SPORTS_RECREATION_SCENES,
+    "industrial_workshop": INDUSTRIAL_WORKSHOP_SCENES,
+    "garden_park": GARDEN_PARK_SCENES,
+    "entertainment_culture": ENTERTAINMENT_CULTURE_SCENES,
+}
 
 OUTDOOR_SCENE_GROUPS = {
     "rural_traditional",
@@ -123,10 +238,17 @@ OUTDOOR_SCENE_GROUPS = {
     "market_public",
     "religious_heritage",
     "urban_transport",
+    "coastal_water",
+    "sports_recreation",
+    "garden_park",
+    "entertainment_culture",
+    "industrial_workshop",
 }
 
 INDOOR_SCENE_GROUPS = {
     "indoor_domestic",
+    "public_indoor",
+    "education_health_office",
 }
 
 
@@ -146,20 +268,20 @@ def scene_groups_for_label(scene_label: str) -> list[str]:
 
 
 def infer_indoor_outdoor_from_scene(scene_label: str) -> str:
-    groups = set(scene_groups_for_label(scene_label))
-
-    if groups & INDOOR_SCENE_GROUPS:
-        return "indoor"
-
-    if groups & OUTDOOR_SCENE_GROUPS:
-        return "outdoor"
-
     normalized = normalize_scene_label(scene_label)
 
     if "indoor" in normalized:
         return "indoor"
 
     if "outdoor" in normalized:
+        return "outdoor"
+
+    groups = set(scene_groups_for_label(scene_label))
+
+    if groups & INDOOR_SCENE_GROUPS:
+        return "indoor"
+
+    if groups & OUTDOOR_SCENE_GROUPS:
         return "outdoor"
 
     return "unknown"
@@ -169,169 +291,6 @@ def infer_indoor_outdoor_from_scene(scene_label: str) -> str:
 # Grounding DINO vocabularies
 # ---------------------------------------------------------------------
 
-CORE_OBJECT_VOCAB = [
-    "person",
-    "man",
-    "woman",
-    "child",
-    "horse",
-    "donkey",
-    "cow",
-    "sheep",
-    "dog",
-    "cat",
-    "cart",
-    "wagon",
-    "basket",
-    "tool",
-    "tree",
-    "plant",
-    "house",
-    "building",
-    "fence",
-    "car",
-    "bus",
-    "truck"
-]
-
-RURAL_OBJECT_VOCAB = [
-    "person",
-    "man",
-    "woman",
-    "child",
-    "horse",
-    "donkey",
-    "cow",
-    "sheep",
-    "goat",
-    "dog",
-    "cart",
-    "wagon",
-    "plow",
-    "basket",
-    "bucket",
-    "tool",
-    "hay",
-    "crop",
-    "tree",
-    "plant",
-    "fence",
-    "barn",
-    "stable",
-    "house",
-]
-
-MARKET_OBJECT_VOCAB = [
-    "person",
-    "man",
-    "woman",
-    "child",
-    "basket",
-    "table",
-    "stall",
-    "cart",
-    "wagon",
-    "fruit",
-    "vegetables",
-    "bread",
-    "food",
-    "cloth",
-    "container",
-    "bag",
-]
-
-RELIGIOUS_HERITAGE_OBJECT_VOCAB = [
-    "person",
-    "man",
-    "woman",
-    "child",
-    "building",
-    "church",
-    "temple",
-    "stone",
-    "arch",
-    "door",
-    "cross",
-    "statue",
-    "tree",
-]
-
-INDOOR_DOMESTIC_OBJECT_VOCAB = [
-    "person",
-    "man",
-    "woman",
-    "child",
-    "table",
-    "chair",
-    "bed",
-    "basket",
-    "tool",
-    "food",
-    "bread",
-    "fireplace",
-    "window",
-    "door",
-    "cabinet",
-]
-
-NATURAL_OUTDOOR_OBJECT_VOCAB = [
-    "person",
-    "horse",
-    "donkey",
-    "cow",
-    "sheep",
-    "dog",
-    "tree",
-    "plant",
-    "grass",
-    "water",
-    "rock",
-    "path",
-    "fence",
-    "cart",
-    "wagon"
-]
-
-
-GROUNDING_DINO_VOCABS = {
-    "core": CORE_OBJECT_VOCAB,
-    "rural_traditional": RURAL_OBJECT_VOCAB,
-    "market_public": MARKET_OBJECT_VOCAB,
-    "religious_heritage": RELIGIOUS_HERITAGE_OBJECT_VOCAB,
-    "indoor_domestic": INDOOR_DOMESTIC_OBJECT_VOCAB,
-    "natural_outdoor": NATURAL_OUTDOOR_OBJECT_VOCAB,
-}
-
-
-def build_prompt(vocab: list[str]) -> str:
-    return ", ".join(vocab)
-
-
-def select_grounding_vocab(scene_label: str | None = None) -> list[str]:
-    if scene_label is None:
-        return CORE_OBJECT_VOCAB
-
-    groups = scene_groups_for_label(scene_label)
-
-    if not groups:
-        return CORE_OBJECT_VOCAB
-
-    vocab = []
-    for group in groups:
-        vocab.extend(GROUNDING_DINO_VOCABS.get(group, []))
-
-    if not vocab:
-        return CORE_OBJECT_VOCAB
-
-    # Preserve order while removing duplicates.
-    return list(dict.fromkeys(vocab))
-
-
-def build_grounding_prompt_for_scene(scene_label: str | None = None) -> str:
-    vocab = select_grounding_vocab(scene_label)
-    return build_prompt(vocab)
-
-
 UNIVERSAL_GROUNDING_PROMPT_BATCHES = {
     "humans": {
         "terms": [
@@ -339,17 +298,19 @@ UNIVERSAL_GROUNDING_PROMPT_BATCHES = {
             "man",
             "woman",
             "child",
+            "crowd",
         ],
         "box_threshold": 0.20,
         "text_threshold": 0.20,
     },
+
     "animals": {
         "terms": [
-            "animal",
             "horse",
             "donkey",
             "cow",
             "sheep",
+            "goat",
             "dog",
             "cat",
             "bird",
@@ -357,58 +318,295 @@ UNIVERSAL_GROUNDING_PROMPT_BATCHES = {
         "box_threshold": 0.25,
         "text_threshold": 0.20,
     },
-    "vehicles_structures": {
+
+    "vehicles_transport": {
         "terms": [
             "car",
+            "bus",
+            "truck",
+            "bicycle",
+            "motorcycle",
             "cart",
             "wagon",
-            "bicycle",
+            "boat",
+            "train",
             "tram",
-            "bus",
-            "building",
-            "house",
-            "church",
-            "wall",
-            "fence",
-            "street lamp",
+            "wheelchair",
         ],
         "box_threshold": 0.30,
         "text_threshold": 0.25,
     },
+
+    "structures_built_environment": {
+        "terms": [
+            "building",
+            "house",
+            "church",
+            "tower",
+            "wall",
+            "fence",
+            "gate",
+            "door",
+            "window",
+            "bridge",
+            "street lamp",
+            "bench",
+        ],
+        "box_threshold": 0.30,
+        "text_threshold": 0.25,
+    },
+
     "nature_terrain": {
         "terms": [
             "tree",
             "plant",
             "grass",
-            "water",
+            "flower",
+            "crop",
+            "field",
             "road",
             "street",
             "path",
+            "water",
+            "river",
             "rock",
             "sky",
         ],
         "box_threshold": 0.30,
         "text_threshold": 0.25,
     },
-    "objects": {
+
+    "objects_tools_food": {
         "terms": [
             "table",
             "chair",
             "basket",
-            "tool",
             "bag",
+            "bucket",
+            "barrel",
+            "box",
+            "tool",
+            "instrument",
             "umbrella",
-            "bench",
             "food",
+            "bread",
             "fruit",
             "vegetables",
-            "wheelchair",
         ],
         "box_threshold": 0.30,
         "text_threshold": 0.25,
     },
 }
 
+SCENE_EXPANSION_VOCABS = {
+    # ----------------------------------
+    # RURAL / TRADITIONAL
+    # ----------------------------------
+    "rural_traditional": [
+        "barn",
+        "stable",
+        "corral",
+        "fence",
+        "hay",
+        "haystack",
+        "plow",
+        "farm tool",
+        "wooden cart",
+        "wagon",
+        "tractor",
+        "field crop",
+        "grain",
+        "animal pen",
+    ],
+
+    # ----------------------------------
+    # NATURAL OUTDOOR
+    # ----------------------------------
+    "natural_outdoor": [
+        "tree",
+        "forest",
+        "bush",
+        "grass",
+        "rock",
+        "river",
+        "water",
+        "waterfall",
+        "lake",
+        "mountain",
+        "trail",
+        "path",
+        "log",
+    ],
+
+    # ----------------------------------
+    # MARKET / PUBLIC
+    # ----------------------------------
+    "market_public": [
+        "market stall",
+        "vendor",
+        "stand",
+        "crate",
+        "basket",
+        "fruit",
+        "vegetable",
+        "awning",
+        "table",
+        "crowd",
+        "sign",
+    ],
+
+    # ----------------------------------
+    # RELIGIOUS / HERITAGE
+    # ----------------------------------
+    "religious_heritage": [
+        "cathedral",
+        "church",
+        "temple",
+        "altar",
+        "statue",
+        "arch",
+        "column",
+        "bell tower",
+        "stone wall",
+        "grave",
+        "monument",
+    ],
+
+    # ----------------------------------
+    # URBAN TRANSPORT
+    # ----------------------------------
+    "urban_transport": [
+        "car",
+        "bus",
+        "truck",
+        "tram",
+        "bicycle",
+        "motorcycle",
+        "traffic light",
+        "crosswalk",
+        "sidewalk",
+        "road",
+        "street sign",
+        "bridge",
+        "rail",
+    ],
+
+    # ----------------------------------
+    # INDOOR DOMESTIC
+    # ----------------------------------
+    "indoor_domestic": [
+        "table",
+        "chair",
+        "bed",
+        "sofa",
+        "cabinet",
+        "lamp",
+        "window",
+        "door",
+        "kitchen appliance",
+        "cooking pot",
+        "bowl",
+        "sink",
+    ],
+
+    # ----------------------------------
+    # PUBLIC INDOOR
+    # ----------------------------------
+    "public_indoor": [
+        "chair",
+        "table",
+        "stage",
+        "screen",
+        "counter",
+        "desk",
+        "sign",
+        "queue barrier",
+        "display",
+    ],
+
+    # ----------------------------------
+    # EDUCATION / OFFICE / HEALTH
+    # ----------------------------------
+    "education_health_office": [
+        "desk",
+        "computer",
+        "monitor",
+        "chair",
+        "whiteboard",
+        "book",
+        "bed",
+        "medical equipment",
+        "cabinet",
+    ],
+
+    # ----------------------------------
+    # SPORTS / RECREATION
+    # ----------------------------------
+    "sports_recreation": [
+        "ball",
+        "goal",
+        "net",
+        "court",
+        "field",
+        "bench",
+        "helmet",
+        "equipment",
+    ],
+
+    # ----------------------------------
+    # INDUSTRIAL / WORKSHOP
+    # ----------------------------------
+    "industrial_workshop": [
+        "machine",
+        "tool",
+        "engine",
+        "pipe",
+        "metal structure",
+        "crane",
+        "forklift",
+        "container",
+    ],
+
+    # ----------------------------------
+    # COASTAL / WATER
+    # ----------------------------------
+    "coastal_water": [
+        "boat",
+        "ship",
+        "dock",
+        "pier",
+        "water",
+        "wave",
+        "sand",
+        "lifeguard tower",
+    ],
+
+    # ----------------------------------
+    # GARDEN / PARK
+    # ----------------------------------
+    "garden_park": [
+        "tree",
+        "flower",
+        "bench",
+        "path",
+        "grass",
+        "fountain",
+        "gazebo",
+    ],
+
+    # ----------------------------------
+    # ENTERTAINMENT / CULTURE
+    # ----------------------------------
+    "entertainment_culture": [
+        "stage",
+        "instrument",
+        "speaker",
+        "light",
+        "screen",
+        "audience",
+        "microphone",
+    ],
+}
 
 def build_prompt_from_terms(terms: list[str]) -> str:
     return ", ".join(terms)
@@ -427,3 +625,30 @@ def iter_universal_prompt_batches():
             "box_threshold": batch["box_threshold"],
             "text_threshold": batch["text_threshold"],
         }
+
+def iter_scene_expansion_prompt_batches(scene_label: str | None):
+    """Yield scene-aware prompt batches derived from Places365 scene groups."""
+    if scene_label is None:
+        return
+
+    groups = scene_groups_for_label(scene_label)
+
+    for group in groups:
+        terms = SCENE_EXPANSION_VOCABS.get(group)
+
+        if not terms:
+            continue
+
+        yield {
+            "name": f"scene_expansion:{group}",
+            "prompt": build_prompt_from_terms(terms),
+            "box_threshold": 0.28,
+            "text_threshold": 0.22,
+        }
+
+def iter_grounding_prompt_batches(scene_label: str | None = None):
+    """Yield universal + optional scene-aware Grounding DINO prompts."""
+    yield from iter_universal_prompt_batches()
+
+    if scene_label is not None:
+        yield from iter_scene_expansion_prompt_batches(scene_label)
