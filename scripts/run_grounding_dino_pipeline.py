@@ -1,11 +1,12 @@
 """Run Workflow B with real Grounding DINO detections.
 
-This script validates the first real end-to-end path:
+Current path:
 
-image -> Grounding DINO -> geometry -> fusion -> CORE + EXTENDED JSON
+image -> Places365 -> Grounding DINO -> post-processing -> geometry/fusion
+      -> optional HOI adapter -> CORE + EXTENDED JSON
 
-Scene classification and HOI are still placeholders at this stage. This is
-intentional: we validate object detection and fusion before adding more models.
+HOI is adapter-based and disabled by default. The dummy mode validates the
+interaction fusion contract before integrating an external HOI model.
 """
 
 from __future__ import annotations
@@ -19,33 +20,32 @@ from PIL import Image
 from src.fusion import build_from_modules
 from src.postprocessing import filter_detections
 from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
+from src.workflow_b.hoi_adapter import DummyHOIAdapter, RawHOITriplet
+from src.workflow_b.hoi_fusion import build_observed_interactions
 from src.workflow_b.places365_adapter import Places365Adapter
 from src.workflow_b.vocabularies import (
     infer_indoor_outdoor_from_scene,
-    iter_grounding_prompt_batches
+    iter_grounding_prompt_batches,
 )
 
 
-def infer_indoor_outdoor(scene_label: str) -> str:
-    outdoor_keywords = {
-        "forest", "path", "pasture", "farm", "field", "broadleaf",
-        "rainforest", "bamboo forest", "yard", "garden", "road",
-        "mountain", "valley", "village"
-    }
-    indoor_keywords = {
-        "room", "kitchen", "bedroom", "bathroom", "corridor",
-        "office", "classroom", "indoor"
-    }
+def make_demo_dummy_hoi() -> DummyHOIAdapter:
+    """Create a handcrafted HOI adapter for smoke tests.
 
-    label = scene_label.lower()
-
-    if any(k in label for k in outdoor_keywords):
-        return "outdoor"
-
-    if any(k in label for k in indoor_keywords):
-        return "indoor"
-
-    return "unknown"
+    The coordinates roughly target the test2 street image used during local
+    development. For arbitrary images this may produce no interaction because
+    IoU matching will reject non-overlapping boxes.
+    """
+    return DummyHOIAdapter(
+        triplets=[
+            RawHOITriplet(
+                human_bbox=[728.0, 737.0, 883.0, 901.0],
+                object_bbox=[704.0, 772.0, 841.0, 913.0],
+                verb="sitting on",
+                confidence=0.90,
+            )
+        ]
+    )
 
 
 def main() -> None:
@@ -75,6 +75,12 @@ def main() -> None:
         type=float,
         default=0.35,
     )
+    parser.add_argument(
+        "--hoi",
+        choices=["none", "dummy"],
+        default="none",
+        help="HOI backend to use. 'dummy' is only for fusion smoke tests.",
+    )
 
     args = parser.parse_args()
 
@@ -94,7 +100,7 @@ def main() -> None:
         / "places365"
         / f"{args.scene_architecture}_places365.pth.tar",
     )
-    
+
     scene = scene_model.predict(
         image_path=image_path,
         topk=5,
@@ -102,7 +108,7 @@ def main() -> None:
 
     raw_detections = []
 
-    for batch in iter_grounding_prompt_batches():
+    for batch in iter_grounding_prompt_batches(scene["label"]):
         batch_detections = detector.predict(
             image_path=image_path,
             prompt=batch["prompt"],
@@ -145,8 +151,19 @@ def main() -> None:
         hoi=[],
     )
 
-    # Override indoor/outdoor because the current fusion layer does not infer it yet.
     core.scene.indoor_outdoor = infer_indoor_outdoor_from_scene(scene["label"])
+
+    raw_hois = []
+    if args.hoi == "dummy":
+        hoi_adapter = make_demo_dummy_hoi()
+        raw_hois = hoi_adapter.predict(image_path)
+        interactions = build_observed_interactions(
+            raw_hois=raw_hois,
+            entities_extended=extended.model_dump()["entities_extended"],
+        )
+        core.observed_interactions = interactions
+        core.environment.activity_level = "medium" if interactions else "low"
+        core.caption = core.caption if not interactions else core.caption
 
     output = {
         "core": core.model_dump(),
@@ -154,6 +171,8 @@ def main() -> None:
         "metadata": {
             "detector": "grounding_dino",
             "scene_model": scene,
+            "hoi_backend": args.hoi,
+            "raw_hoi_count": len(raw_hois),
             "box_threshold": args.box_threshold,
             "text_threshold": args.text_threshold,
             "min_confidence": args.min_confidence,
