@@ -161,7 +161,11 @@ def build_from_modules(
         lighting="unknown"
     )
 
-    caption = build_caption(scene_label, entities, interactions)
+    caption = build_caption(
+        scene_label=scene_label,
+        entities=entities,
+        interactions=interactions,
+    )
 
     core = CoreJSON(
         image_id=image_id,
