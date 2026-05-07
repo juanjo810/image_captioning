@@ -27,6 +27,7 @@ from src.workflow_b.vocabularies import (
     infer_indoor_outdoor_from_scene,
     iter_grounding_prompt_batches,
 )
+from src.workflow_b.upt_adapter import UPTAdapter
 
 
 def make_demo_dummy_hoi() -> DummyHOIAdapter:
@@ -77,7 +78,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--hoi",
-        choices=["none", "dummy"],
+        choices=["none", "dummy", "upt"],
         default="none",
         help="HOI backend to use. 'dummy' is only for fusion smoke tests.",
     )
@@ -115,7 +116,7 @@ def main() -> None:
             box_threshold=batch["box_threshold"],
             text_threshold=batch["text_threshold"],
         )
-
+        '''
         print(f"\nRAW DETECTIONS [{batch['name']}]")
         for d in batch_detections:
             print(
@@ -123,6 +124,7 @@ def main() -> None:
                 round(d.confidence, 3),
                 [round(x, 1) for x in d.bbox],
             )
+        '''
 
         raw_detections.extend(batch_detections)
 
@@ -133,11 +135,11 @@ def main() -> None:
         semantic_iou_threshold=0.30,
         semantic_containment_threshold=0.65,
     )
-
+    '''
     print("FILTERED DETECTIONS")
     for d in detections:
         print(d.label, round(d.confidence, 3), [round(x, 1) for x in d.bbox])
-
+    '''
     with Image.open(image_path) as img:
         width, height = img.size
 
@@ -164,6 +166,33 @@ def main() -> None:
         core.observed_interactions = interactions
         core.environment.activity_level = "medium" if interactions else "low"
         core.caption = core.caption if not interactions else core.caption
+
+    elif args.hoi == "upt":
+        hoi_adapter = UPTAdapter(
+            upt_root=base / "upt",
+            checkpoint_path=base / "models/upt/upt-r50-hicodet.pt",
+            data_root=base / "upt/hicodet",
+            device="cuda",
+            action_score_thresh=0.10,
+        )
+        raw_hois = hoi_adapter.predict(image_path)
+        interactions = build_observed_interactions(
+            raw_hois=raw_hois,
+            entities_extended=extended.model_dump()["entities_extended"],
+        )
+        core.observed_interactions = interactions
+        core.environment.activity_level = "medium" if interactions else "low"
+
+    '''
+    print("RAW HOIS")
+    for h in raw_hois:
+        print(
+            h.verb,
+            round(h.confidence, 4),
+            "human_bbox=", [round(x, 1) for x in h.human_bbox],
+            "object_bbox=", [round(x, 1) for x in h.object_bbox],
+        )
+    '''
 
     output = {
         "core": core.model_dump(),

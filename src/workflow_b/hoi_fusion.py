@@ -6,6 +6,18 @@ from src.schemas import ObservedInteraction
 from src.workflow_b.hoi_utils import match_bbox_to_entity
 
 
+def keep_top_interaction_per_pair(interactions):
+    """Keep only the highest-confidence interaction for each subject-object pair."""
+    best = {}
+
+    for interaction in interactions:
+        key = (interaction.subject_id, interaction.object_id)
+
+        if key not in best or interaction.confidence > best[key].confidence:
+            best[key] = interaction
+
+    return list(best.values())
+
 def build_observed_interactions(
     raw_hois,
     entities_extended,
@@ -37,4 +49,4 @@ def build_observed_interactions(
             )
         )
 
-    return interactions
+    return keep_top_interaction_per_pair(interactions)
