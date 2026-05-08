@@ -15,12 +15,13 @@ import argparse
 import json
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 
 from PIL import Image
 
 from src.fusion import build_from_modules
 from src.postprocessing import filter_detections
-from src.captioning import build_caption, build_llm_caption_from_json
+from src.captioning import build_caption
 from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
 from src.workflow_b.hoi_adapter import DummyHOIAdapter, RawHOITriplet
 from src.workflow_b.hoi_fusion import build_observed_interactions
@@ -53,6 +54,8 @@ def make_demo_dummy_hoi() -> DummyHOIAdapter:
 
 
 def main() -> None:
+    load_dotenv()
+    
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -82,15 +85,8 @@ def main() -> None:
     parser.add_argument(
         "--hoi",
         choices=["none", "dummy", "upt"],
-        default="none",
+        default="upt",
         help="HOI backend to use. 'dummy' is only for fusion smoke tests.",
-    )
-
-    parser.add_argument(
-        "--caption-mode",
-        choices=["template", "llm"],
-        default="template",
-        help="Caption generation mode. 'template' is reproducible; 'llm' generates a natural caption from JSON only.",
     )
 
     args = parser.parse_args()
@@ -204,27 +200,12 @@ def main() -> None:
         )
     '''
 
-    if args.caption_mode == "template":
-        core.caption = build_caption(
-            scene_label=core.scene.label,
-            entities=core.entities,
-            interactions=core.observed_interactions,
-            indoor_outdoor=core.scene.indoor_outdoor,
-        )
-
-    elif args.caption_mode == "llm":
-        template_caption = build_caption(
-            scene_label=core.scene.label,
-            entities=core.entities,
-            interactions=core.observed_interactions,
-            indoor_outdoor=core.scene.indoor_outdoor,
-        )
-
-        core.caption = build_llm_caption_from_json(
-            core_json=core.model_dump(),
-            extended_json=extended.model_dump(),
-            fallback_caption=template_caption,
-        )
+    core.caption = build_caption(
+        scene_label=core.scene.label,
+        entities=core.entities,
+        interactions=core.observed_interactions,
+        indoor_outdoor=core.scene.indoor_outdoor,
+    )
 
     output = {
         "core": core.model_dump(),
@@ -237,9 +218,6 @@ def main() -> None:
             "box_threshold": args.box_threshold,
             "text_threshold": args.text_threshold,
             "min_confidence": args.min_confidence,
-            "caption_mode": args.caption_mode,
-            "llm_provider": os.getenv("WORKFLOW_B_LLM_PROVIDER", ""),
-            "llm_model": os.getenv("WORKFLOW_B_OPENAI_MODEL", ""),
         },
     }
 
