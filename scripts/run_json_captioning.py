@@ -176,7 +176,7 @@ def main() -> None:
 
     parser.add_argument(
         "--model-id",
-        default="google/gemma-4-26B-A4B-it",
+        default="google/gemma-4-E4B-it",
         help="Hugging Face Gemma model id.",
     )
 
