@@ -23,14 +23,16 @@ from src.fusion import build_from_modules
 from src.postprocessing import filter_detections
 from src.captioning import build_caption
 from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
+from src.workflow_b.owlv2_adapter import OWLv2Adapter
+from src.workflow_b.places365_adapter import Places365Adapter
 from src.workflow_b.hoi_adapter import DummyHOIAdapter, RawHOITriplet
 from src.workflow_b.hoi_fusion import build_observed_interactions
-from src.workflow_b.places365_adapter import Places365Adapter
 from src.workflow_b.vocabularies import (
     infer_indoor_outdoor_from_scene,
     iter_grounding_prompt_batches,
 )
 from src.workflow_b.upt_adapter import UPTAdapter
+from src.workflow_b.owlv2_adapter import OWLv2Adapter
 
 
 
@@ -63,6 +65,12 @@ def main() -> None:
         default="/home/jovyan/projects/data/test.jpg",
     )
     parser.add_argument(
+        "--detector",
+        choices=["grounding_dino", "owlv2"],
+        default="grounding_dino",
+        help="Open-vocabulary detector backend.",
+    )
+    parser.add_argument(
         "--scene-architecture",
         choices=["resnet50", "densenet161"],
         default="resnet50",
@@ -88,16 +96,37 @@ def main() -> None:
         default="upt",
         help="HOI backend to use. 'dummy' is only for fusion smoke tests.",
     )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory where the generated JSON will be saved. If omitted, only prints to stdout.",
+    )
+
+    parser.add_argument(
+        "--output-name",
+        default=None,
+        help="Optional output JSON filename. Defaults to image stem + '.json'.",
+    )
 
     args = parser.parse_args()
 
     base = Path("/home/jovyan/projects")
     image_path = Path(args.image)
 
-    detector = GroundingDINOAdapter(
-        config_path=base / "GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
-        checkpoint_path=base / "models/groundingdino_swint_ogc.pth",
-    )
+    if args.detector == "grounding_dino":
+        detector = GroundingDINOAdapter(
+            config_path=base / "GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
+            checkpoint_path=base / "models/groundingdino_swint_ogc.pth",
+        )
+
+    elif args.detector == "owlv2":
+        detector = OWLv2Adapter(
+            model_id="google/owlv2-base-patch16-ensemble",
+            device="cuda",
+        )
+
+    else:
+        raise ValueError(f"Unsupported detector: {args.detector}")
 
     scene_model = Places365Adapter(
         architecture=args.scene_architecture,
@@ -211,7 +240,7 @@ def main() -> None:
         "core": core.model_dump(),
         "extended": extended.model_dump(),
         "metadata": {
-            "detector": "grounding_dino",
+            "detector": args.detector,
             "scene_model": scene,
             "hoi_backend": args.hoi,
             "raw_hoi_count": len(raw_hois),
@@ -221,7 +250,19 @@ def main() -> None:
         },
     }
 
-    print(json.dumps(output, indent=2, ensure_ascii=False))
+    output_text = json.dumps(output, indent=2, ensure_ascii=False)
+
+    if args.output_dir is not None:
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_name = args.output_name or f"{image_path.stem}.json"
+        output_path = output_dir / output_name
+
+        output_path.write_text(output_text, encoding="utf-8")
+        print(f"[OK] JSON saved to: {output_path}")
+    else:
+        print(output_text)
 
 if __name__ == "__main__":
     main()
