@@ -314,6 +314,7 @@ UNIVERSAL_GROUNDING_PROMPT_BATCHES = {
             "dog",
             "cat",
             "bird",
+            "zebra",
         ],
         "box_threshold": 0.25,
         "text_threshold": 0.20,

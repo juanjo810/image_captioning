@@ -108,6 +108,12 @@ def main() -> None:
         help="Optional output JSON filename. Defaults to image stem + '.json'.",
     )
 
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging.",
+    )
+
     args = parser.parse_args()
 
     base = Path("/home/jovyan/projects")
@@ -151,15 +157,16 @@ def main() -> None:
             box_threshold=batch["box_threshold"],
             text_threshold=batch["text_threshold"],
         )
-        '''
-        print(f"\nRAW DETECTIONS [{batch['name']}]")
-        for d in batch_detections:
-            print(
-                d.label,
-                round(d.confidence, 3),
-                [round(x, 1) for x in d.bbox],
-            )
-        '''
+        
+        if args.verbose:
+            print(f"\nRAW DETECTIONS [{batch['name']}]")
+            for d in batch_detections:
+                print(
+                    d.label,
+                    round(d.confidence, 3),
+                    [round(x, 1) for x in d.bbox],
+                )
+        
 
         raw_detections.extend(batch_detections)
 
@@ -170,11 +177,12 @@ def main() -> None:
         semantic_iou_threshold=0.30,
         semantic_containment_threshold=0.65,
     )
-    '''
-    print("FILTERED DETECTIONS")
-    for d in detections:
-        print(d.label, round(d.confidence, 3), [round(x, 1) for x in d.bbox])
-    '''
+
+    if args.verbose:
+        print("FILTERED DETECTIONS")
+        for d in detections:
+            print(d.label, round(d.confidence, 3), [round(x, 1) for x in d.bbox])
+    
     with Image.open(image_path) as img:
         width, height = img.size
 
@@ -218,16 +226,16 @@ def main() -> None:
         core.observed_interactions = interactions
         core.environment.activity_level = "medium" if interactions else "low"
 
-    '''
-    print("RAW HOIS")
-    for h in raw_hois:
-        print(
-            h.verb,
-            round(h.confidence, 4),
-            "human_bbox=", [round(x, 1) for x in h.human_bbox],
-            "object_bbox=", [round(x, 1) for x in h.object_bbox],
-        )
-    '''
+    if args.verbose:
+        print("RAW HOIS")
+        for h in raw_hois:
+            print(
+                h.verb,
+                round(h.confidence, 4),
+                "human_bbox=", [round(x, 1) for x in h.human_bbox],
+                "object_bbox=", [round(x, 1) for x in h.object_bbox],
+            )
+    
 
     core.caption = build_caption(
         scene_label=core.scene.label,

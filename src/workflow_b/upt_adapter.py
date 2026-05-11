@@ -129,7 +129,23 @@ class UPTAdapter:
             image_tensor.shape[-2],
         )
 
-        output = self.model([image_tensor])[0]
+        outputs = self.model([image_tensor])
+
+        if not outputs:
+            return []
+
+        output = outputs[0]
+
+        if output is None:
+            return []
+
+        required_keys = {"boxes", "pairing", "scores", "objects", "labels"}
+
+        if not required_keys.issubset(output.keys()):
+            return []
+
+        if output["scores"].numel() == 0:
+            return []
 
         boxes = output["boxes"].detach().cpu()
         pairing = output["pairing"].detach().cpu()
