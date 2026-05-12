@@ -8,15 +8,72 @@ from typing import Any
 import torch
 from transformers import AutoModelForCausalLM, AutoProcessor
 
+CAPTION_SPATIAL_RELATIONS = {
+    "left_of",
+    "right_of",
+    "above",
+    "below",
+}
+
+
+def select_caption_relevant_spatial_relations(
+    core_json: dict[str, Any],
+    max_relations: int = 2,
+) -> list[dict[str, Any]]:
+    relations = core_json.get("spatial_relations", [])
+    entities = {
+        entity.get("id"): entity
+        for entity in core_json.get("entities", [])
+    }
+
+    selected = []
+
+    for rel in relations:
+        if rel.get("relation") not in CAPTION_SPATIAL_RELATIONS:
+            continue
+
+        subject = entities.get(rel.get("subject_id"))
+        obj = entities.get(rel.get("object_id"))
+
+        if subject is None or obj is None:
+            continue
+
+        # Avoid unnatural captions like:
+        # "the building is to the right of the street lamp"
+        if (
+            subject.get("category") in {"object", "structure"}
+            and obj.get("category") in {"object", "structure"}
+        ):
+            continue
+
+        selected.append(rel)
+
+    selected = sorted(
+        selected,
+        key=lambda r: r.get("confidence", 0.0),
+        reverse=True,
+    )
+
+    return selected[:max_relations]
+
+
+def build_caption_payload(
+    core_json: dict[str, Any],
+    extended_json: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "scene": core_json.get("scene", {}),
+        "entities": core_json.get("entities", []),
+        "observed_interactions": core_json.get("observed_interactions", []),
+        "spatial_relations": select_caption_relevant_spatial_relations(core_json),
+        "environment": core_json.get("environment", {}),
+    }
 
 def build_llm_caption_prompt(
     core_json: dict[str, Any],
     extended_json: dict[str, Any] | None = None,
 ) -> str:
-    payload: dict[str, Any] = {"core": core_json}
-
-    if extended_json is not None:
-        payload["extended"] = extended_json
+    payload = build_caption_payload(core_json, extended_json)
 
     return (
         "You are given a structured JSON representation extracted from an image.\n"
@@ -26,6 +83,9 @@ def build_llm_caption_prompt(
         "- Do not infer geographic locations.\n"
         "- Do not invent actions not present in observed_interactions.\n"
         "- Prefer observed_interactions when available.\n"
+        "- Use spatial_relations only when they make the caption more natural.\n"
+        "- Do not mention technical relations such as overlapping.\n"
+        "- Do not mention bounding boxes, confidences, ids, metadata, or JSON structure.\n"
         "- Mention the scene if useful.\n"
         "- Keep the caption natural and concise.\n"
         "- If confidence is low or information is sparse, remain generic.\n"
@@ -33,7 +93,6 @@ def build_llm_caption_prompt(
         "JSON:\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
-
 
 def clean_caption(caption: str) -> str:
     caption = caption.strip()
@@ -54,9 +113,9 @@ class GemmaCaptioner:
         self,
         model_id: str,
         max_new_tokens: int = 80,
-        temperature: float = 0.2,
-        top_p: float = 0.9,
-        top_k: int = 40,
+        temperature: float = 1.0,
+        top_p: float = 0.95,
+        top_k: int = 64,
     ) -> None:
         self.model_id = model_id
         self.max_new_tokens = max_new_tokens

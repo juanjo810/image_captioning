@@ -2,8 +2,8 @@
 
 set -e
 
-IN_BASE="outputs/pilot_vg/visual_json"
-OUT_BASE="outputs/pilot_vg/captions_gemma"
+IN_BASE="outputs/pilot_vg/visual_json_spatialRelations"
+OUT_BASE="outputs/pilot_vg/captions_gemma_spatialRelations"
 
 CONFIGS=(
   "grounding_dino_resnet50"

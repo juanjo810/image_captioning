@@ -3,11 +3,11 @@
 set -e
 
 IMAGE_DIR="/home/jovyan/projects/data/vg_subset"
-OUT_BASE="outputs/pilot_vg/visual_json"
+OUT_BASE="outputs/pilot_vg/visual_json_spatialRelations"
 
 CONFIGS=(
-  #"grounding_dino resnet50"
-  #"grounding_dino densenet161"
+  "grounding_dino resnet50"
+  "grounding_dino densenet161"
   "owlv2 resnet50"
   "owlv2 densenet161"
 )
