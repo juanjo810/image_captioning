@@ -9,12 +9,53 @@ from src.schemas import Entity, ObservedInteraction
 
 from src.schemas import Entity, ObservedInteraction
 
+def describe_spatial_relations(
+    spatial_relations: list[dict],
+    entities: list,
+    max_relations: int = 1,
+) -> str:
+    entity_by_id = {e.id: e.label for e in entities}
+
+    verbalizable = {
+        "left_of": "to the left of",
+        "right_of": "to the right of",
+        "above": "above",
+        "below": "below",
+    }
+
+    phrases = []
+
+    for rel in sorted(
+        spatial_relations,
+        key=lambda r: r.get("confidence", 0.0),
+        reverse=True,
+    ):
+        relation = rel.get("relation")
+
+        if relation not in verbalizable:
+            continue
+
+        subj = entity_by_id.get(rel.get("subject_id"))
+        obj = entity_by_id.get(rel.get("object_id"))
+
+        if subj is None or obj is None:
+            continue
+
+        phrases.append(
+            f"The {subj} is {verbalizable[relation]} the {obj}"
+        )
+
+        if len(phrases) >= max_relations:
+            break
+
+    return ". ".join(phrases)
 
 def build_caption(
     scene_label: str,
     entities: list[Entity],
     interactions: list[ObservedInteraction],
     indoor_outdoor: str | None = None,
+    spatial_relations: list | None = None,
 ) -> str:
     """Deterministic but more natural template caption."""
 
@@ -54,6 +95,14 @@ def build_caption(
 
     scene_text = _scene_phrase(scene_label, indoor_outdoor)
 
+    spatial_sentence = ""
+    if spatial_relations:
+        spatial_sentence = describe_spatial_relations(
+            spatial_relations=spatial_relations,
+            entities=entities,
+            max_relations=1,
+        )
+
     if interaction_sentences:
         caption = interaction_sentences[0]
 
@@ -63,14 +112,18 @@ def build_caption(
         if context_labels:
             caption += " with " + _join_labels(context_labels[:3])
 
-        return caption + "."
+    else:
+        main_entities = [_entity_phrase(e) for e in entities[:5]]
 
-    main_entities = [_entity_phrase(e) for e in entities[:5]]
+        if main_entities:
+            caption = f"{_capitalize_article(scene_text)} with {_join_labels(main_entities)}"
+        else:
+            caption = f"{_capitalize_article(scene_text)}"
 
-    if main_entities:
-        return f"{_capitalize_article(scene_text)} with {_join_labels(main_entities)}."
+    if spatial_sentence:
+        caption += f". {spatial_sentence}"
 
-    return f"{_capitalize_article(scene_text)}."
+    return caption.strip() + "."
 
 
 def _entity_phrase(entity: Entity) -> str:

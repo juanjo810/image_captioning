@@ -4,6 +4,7 @@ from src.schemas import (
     Scene, Entity, ObservedInteraction, Environment
 )
 from src.captioning import build_caption
+from src.workflow_b.spatial_relations import build_spatial_relations
 
 
 CATEGORY_MAP = {
@@ -181,4 +182,13 @@ def build_from_modules(
         global_geometry=global_geom
     )
 
+    spatial_relations = build_spatial_relations(
+        entities_extended=extended.model_dump()["entities_extended"],
+        image_width=width,
+        image_height=height,
+    )
+
+    core.spatial_relations = spatial_relations
+
     return core, extended
+    

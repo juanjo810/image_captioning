@@ -104,7 +104,7 @@ def suppress_semantic_aliases(
 
 def filter_detections(
     detections: list[Detection],
-    min_confidence: float = 0.35,
+    min_confidence: float = 0.20,
     nms_iou_threshold: float = 0.85,
     semantic_iou_threshold: float = 0.30,
     semantic_containment_threshold: float = 0.65,

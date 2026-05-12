@@ -88,7 +88,7 @@ def main() -> None:
     parser.add_argument(
         "--min-confidence",
         type=float,
-        default=0.35,
+        default=0.20,
     )
     parser.add_argument(
         "--hoi",
@@ -241,6 +241,7 @@ def main() -> None:
         scene_label=core.scene.label,
         entities=core.entities,
         interactions=core.observed_interactions,
+        spatial_relations=[r.model_dump() for r in core.spatial_relations],
         indoor_outdoor=core.scene.indoor_outdoor,
     )
 

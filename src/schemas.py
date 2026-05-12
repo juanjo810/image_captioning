@@ -53,12 +53,19 @@ class Environment(StrictBaseModel):
     activity_level: ActivityLevel = "unknown"
     lighting: LightingLevel = "unknown"
 
+class SpatialRelation(StrictBaseModel):
+    subject_id: str = Field(pattern=r"^e[0-9]+$")
+    relation: str = Field(min_length=1)
+    object_id: str = Field(pattern=r"^e[0-9]+$")
+    confidence: float = Field(ge=0.0, le=1.0)
+
 
 class CoreJSON(StrictBaseModel):
     image_id: str = Field(min_length=1)
     scene: Scene
     entities: list[Entity] = Field(default_factory=list)
     observed_interactions: list[ObservedInteraction] = Field(default_factory=list)
+    spatial_relations: list[SpatialRelation] = Field(default_factory=list)
     environment: Environment
     caption: str = Field(min_length=1)
 
