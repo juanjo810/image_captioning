@@ -7,15 +7,50 @@ from pathlib import Path
 from typing import Any
 
 from scripts.evaluation.vg_utils import canonicalize, load_alias_map, load_json, normalize_text
-from src.workflow_b.constants import CATEGORY_MAP, SCENE_GROUPS
+from src.workflow_b.constants import (
+    CATEGORY_MAP,
+    SCENE_EXPANSION_VOCABS,
+    SCENE_GROUPS,
+    UNIVERSAL_GROUNDING_PROMPT_BATCHES,
+)
 from src.workflow_b.vocabularies import infer_indoor_outdoor_from_scene, scene_groups_for_label
+
+
+# ---------------------------------------------------------------------
+# Workflow-B reachable vocabulary
+# ---------------------------------------------------------------------
+
+WORKFLOW_B_UNIVERSAL_LABELS = {
+    normalize_text(term)
+    for batch in UNIVERSAL_GROUNDING_PROMPT_BATCHES.values()
+    for term in batch["terms"]
+}
+
+WORKFLOW_B_SCENE_EXPANSION_LABELS = {
+    normalize_text(term)
+    for terms in SCENE_EXPANSION_VOCABS.values()
+    for term in terms
+}
+
+WORKFLOW_B_DETECTABLE_LABELS = (
+    WORKFLOW_B_UNIVERSAL_LABELS
+    | WORKFLOW_B_SCENE_EXPANSION_LABELS
+)
 
 
 # ---------------------------------------------------------------------
 # Soundscape-oriented semantic hierarchy
 # ---------------------------------------------------------------------
+#
+# The base hierarchy deliberately contains two kinds of labels:
+#   1. labels currently reachable by Workflow B detector prompts
+#   2. a small set of semantically useful future labels for Workflow A / VLMs
+#
+# For Workflow B evaluation, labels are filtered through
+# WORKFLOW_B_DETECTABLE_LABELS. This avoids penalising/crediting the modular
+# detector for classes that it was never asked to detect.
 
-ACOUSTIC_ENTITY_FAMILIES: dict[str, set[str]] = {
+BASE_ACOUSTIC_ENTITY_FAMILIES: dict[str, set[str]] = {
     "human": {
         "person", "man", "woman", "child", "boy", "girl", "people", "crowd",
         "audience", "vendor", "worker", "player", "pedestrian", "rider",
@@ -60,6 +95,34 @@ ACOUSTIC_ENTITY_FAMILIES: dict[str, set[str]] = {
     },
 }
 
+
+def restrict_families_to_workflow_b(
+    families: dict[str, set[str]],
+) -> dict[str, set[str]]:
+    """Keep only labels reachable by Workflow B detector prompts.
+
+    Category-level fallbacks still exist in label_to_acoustic_family(), but the
+    explicit family vocabulary used for exact family assignment should not
+    contain classes that Workflow B cannot currently output.
+    """
+
+    return {
+        family: {label for label in labels if normalize_text(label) in WORKFLOW_B_DETECTABLE_LABELS}
+        for family, labels in families.items()
+    }
+
+
+ACOUSTIC_ENTITY_FAMILIES_WORKFLOW_B = restrict_families_to_workflow_b(
+    BASE_ACOUSTIC_ENTITY_FAMILIES
+)
+
+# Future/open setting for Workflow A. This is intentionally broader because a
+# VLM can output labels that were not included in Workflow B prompts.
+ACOUSTIC_ENTITY_FAMILIES_OPEN = BASE_ACOUSTIC_ENTITY_FAMILIES
+
+# Default evaluator mode. Can be changed through --label-space.
+ACOUSTIC_ENTITY_FAMILIES = ACOUSTIC_ENTITY_FAMILIES_WORKFLOW_B
+
 # These families are the most important for discrete sound events.
 DISCRETE_SOUND_FAMILIES = {
     "human",
@@ -71,33 +134,66 @@ DISCRETE_SOUND_FAMILIES = {
     "food_market",
 }
 
-# Background/context families are still important, but mainly for ambience.
-BACKGROUND_SOUND_FAMILIES = {
-    "built_context",
-    "nature_context",
-    "water",
+# Background must be scene-driven, because the ambience layer is determined by
+# Places365 scene predictions rather than by arbitrary object labels.
+BACKGROUND_SCENE_FAMILIES: dict[str, str] = {
+    "rural_traditional": "rural/traditional ambience",
+    "natural_outdoor": "nature ambience",
+    "market_public": "public market/crowd ambience",
+    "religious_heritage": "heritage/reverberant ambience",
+    "indoor_domestic": "indoor domestic ambience",
+    "urban_transport": "urban/traffic ambience",
+    "coastal_water": "coastal/water ambience",
+    "public_indoor": "public indoor ambience",
+    "education_health_office": "institutional indoor ambience",
+    "sports_recreation": "sports/recreation ambience",
+    "industrial_workshop": "industrial/mechanical ambience",
+    "garden_park": "garden/park ambience",
+    "entertainment_culture": "performance/cultural ambience",
 }
 
+# The groups must stay aligned with Places365 groups declared in constants.py.
+MISSING_BACKGROUND_SCENE_GROUPS = set(SCENE_GROUPS) - set(BACKGROUND_SCENE_FAMILIES)
+if MISSING_BACKGROUND_SCENE_GROUPS:
+    raise RuntimeError(
+        "BACKGROUND_SCENE_FAMILIES is missing scene groups: "
+        + ", ".join(sorted(MISSING_BACKGROUND_SCENE_GROUPS))
+    )
+
+# HICO-DET/UPT actions are broader than the few examples used in captions. This
+# grouping covers common HICO verbs and keeps an explicit fallback for verbs not
+# mapped yet. This is important because UPT loads its verb vocabulary dynamically.
 INTERACTION_FAMILIES: dict[str, set[str]] = {
     "object_manipulation": {
         "hold", "holding", "carry", "carrying", "use", "using", "wear", "wearing",
-        "touch", "touching", "grab", "grabbing",
+        "touch", "touching", "grab", "grabbing", "cut", "cutting", "wash",
+        "washing", "throw", "throwing", "catch", "catching", "inspect", "open",
+        "opening", "close", "closing", "control", "operate", "operating",
     },
     "locomotion_transport": {
         "ride", "riding", "sit on", "sitting on", "drive", "driving", "walk", "walking",
         "stand", "standing", "stand next to", "standing next to", "push", "pushing",
+        "pull", "pulling", "board", "boarding", "exit", "enter", "park", "parking",
+        "straddle", "run", "running", "jump", "jumping",
     },
     "food_activity": {
         "eat", "eating", "drink", "drinking", "cook", "cooking", "cut", "cutting",
-        "prepare", "preparing",
+        "prepare", "preparing", "feed", "feeding", "serve", "serving",
     },
     "music_performance": {
         "play", "playing", "sing", "singing", "perform", "performing",
     },
     "animal_handling": {
-        "ride horse", "hold horse", "lead", "leading", "feed", "feeding",
+        "ride horse", "hold horse", "lead", "leading", "feed", "feeding", "pet",
+        "petting", "walk dog", "herd", "herding",
+    },
+    "social_attention": {
+        "look", "looking", "look at", "looking at", "watch", "watching", "talk",
+        "talking", "listen", "listening", "point", "pointing",
     },
 }
+
+OTHER_INTERACTION_FAMILY = "other_interaction"
 
 
 # ---------------------------------------------------------------------
@@ -175,12 +271,15 @@ def label_to_acoustic_family(label: str) -> str | None:
     return None
 
 
-def verb_to_interaction_family(verb: str) -> str | None:
+def verb_to_interaction_family(verb: str, *, use_other_fallback: bool = True) -> str | None:
     verb = normalize_text(verb)
 
     for family, verbs in INTERACTION_FAMILIES.items():
         if verb in verbs:
             return family
+
+    if use_other_fallback and verb:
+        return OTHER_INTERACTION_FAMILY
 
     return None
 
@@ -188,6 +287,15 @@ def verb_to_interaction_family(verb: str) -> str | None:
 def scene_family(scene_label: str) -> str | None:
     groups = scene_groups_for_label(scene_label)
     return groups[0] if groups else None
+
+
+def scene_background_family(scene_label: str) -> str:
+    family = scene_family(scene_label)
+
+    if family is None:
+        return "unknown"
+
+    return BACKGROUND_SCENE_FAMILIES.get(family, "unknown")
 
 
 def prf(pred: set[Any], gt: set[Any]) -> tuple[float, float, float]:
@@ -341,6 +449,7 @@ def compute_image_metrics(
     pred_indoor_outdoor = core.get("scene", {}).get("indoor_outdoor", "unknown")
 
     pred_scene_family = scene_family(pred_scene_label)
+    pred_background_family = scene_background_family(pred_scene_label)
     pred_io_from_scene = infer_indoor_outdoor_from_scene(pred_scene_label)
 
     gt_objects = object_refs.get(image_id, set())
@@ -372,6 +481,7 @@ def compute_image_metrics(
     # to compare scene models and ambience-oriented distributions.
     scene_known = pred_scene_family is not None
     indoor_outdoor_known = pred_indoor_outdoor != "unknown" or pred_io_from_scene != "unknown"
+    background_known = pred_background_family != "unknown"
 
     return {
         "image_id": image_id,
@@ -380,7 +490,9 @@ def compute_image_metrics(
         "captioner": row["captioner"],
         "scene_label": pred_scene_label,
         "scene_family": pred_scene_family or "unknown",
+        "background_family": pred_background_family,
         "scene_family_known": float(scene_known),
+        "background_family_known": float(background_known),
         "indoor_outdoor": pred_indoor_outdoor,
         "indoor_outdoor_known": float(indoor_outdoor_known),
         "entity_exact_precision": exact_p,
@@ -418,7 +530,10 @@ def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     metric_keys = [
         key for key in rows[0].keys()
-        if key not in {"image_id", "detector", "scene_model", "captioner", "scene_label", "scene_family", "indoor_outdoor"}
+        if key not in {
+            "image_id", "detector", "scene_model", "captioner", "scene_label",
+            "scene_family", "background_family", "indoor_outdoor",
+        }
     ]
 
     output = []
@@ -457,6 +572,17 @@ def write_csv(rows: list[dict[str, Any]], output_path: Path) -> None:
 # CLI
 # ---------------------------------------------------------------------
 
+def configure_label_space(label_space: str) -> None:
+    global ACOUSTIC_ENTITY_FAMILIES
+
+    if label_space == "workflow_b":
+        ACOUSTIC_ENTITY_FAMILIES = ACOUSTIC_ENTITY_FAMILIES_WORKFLOW_B
+    elif label_space == "open":
+        ACOUSTIC_ENTITY_FAMILIES = ACOUSTIC_ENTITY_FAMILIES_OPEN
+    else:
+        raise ValueError(f"Unsupported label space: {label_space}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
 
@@ -467,12 +593,22 @@ def main() -> None:
     parser.add_argument("--relationship-alias", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument(
+        "--label-space",
+        choices=["workflow_b", "open"],
+        default="workflow_b",
+        help=(
+            "workflow_b evaluates only labels reachable by current detector prompts; "
+            "open keeps extra future/VLM labels."
+        ),
+    )
+    parser.add_argument(
         "--per-image-output",
         default=None,
         help="Optional path for per-image soundscape semantic metrics.",
     )
 
     args = parser.parse_args()
+    configure_label_space(args.label_space)
 
     predictions = load_predictions(Path(args.manifest))
     object_refs = load_object_refs(Path(args.vg_object_refs))
