@@ -1,4 +1,165 @@
 # ---------------------------------------------------------------------
+# Entity category map
+# ---------------------------------------------------------------------
+
+CATEGORY_MAP = {
+    # humans
+    "person": "human",
+    "man": "human",
+    "woman": "human",
+    "child": "human",
+    "crowd": "human",
+    "vendor": "human",
+    "audience": "human",
+
+    # animals
+    "horse": "animal",
+    "donkey": "animal",
+    "cow": "animal",
+    "sheep": "animal",
+    "goat": "animal",
+    "dog": "animal",
+    "cat": "animal",
+    "bird": "animal",
+    "zebra": "animal",
+    "lion": "animal",
+    "tiger": "animal",
+    "giraffe": "animal",
+
+    # vehicles
+    "car": "vehicle",
+    "bus": "vehicle",
+    "truck": "vehicle",
+    "bicycle": "vehicle",
+    "motorcycle": "vehicle",
+    "cart": "vehicle",
+    "wagon": "vehicle",
+    "wooden cart": "vehicle",
+    "boat": "vehicle",
+    "ship": "vehicle",
+    "train": "vehicle",
+    "tram": "vehicle",
+    "tractor": "vehicle",
+    "wheelchair": "vehicle",
+    "forklift": "vehicle",
+
+    # structures
+    "building": "structure",
+    "house": "structure",
+    "church": "structure",
+    "cathedral": "structure",
+    "temple": "structure",
+    "tower": "structure",
+    "bell tower": "structure",
+    "wall": "structure",
+    "stone wall": "structure",
+    "fence": "structure",
+    "gate": "structure",
+    "door": "structure",
+    "window": "structure",
+    "bridge": "structure",
+    "barn": "structure",
+    "stable": "structure",
+    "corral": "structure",
+    "animal pen": "structure",
+    "monument": "structure",
+    "statue": "structure",
+    "arch": "structure",
+    "column": "structure",
+    "altar": "structure",
+    "grave": "structure",
+    "boathouse": "structure",
+    "dock": "structure",
+    "pier": "structure",
+    "gazebo": "structure",
+    "lifeguard tower": "structure",
+
+    # vegetation / natural
+    "tree": "vegetation",
+    "plant": "vegetation",
+    "grass": "vegetation",
+    "flower": "vegetation",
+    "crop": "vegetation",
+    "field crop": "vegetation",
+    "bush": "vegetation",
+    "forest": "vegetation",
+
+    # tools / instruments / equipment
+    "tool": "tool",
+    "farm tool": "tool",
+    "plow": "tool",
+    "instrument": "tool",
+    "microphone": "tool",
+    "speaker": "tool",
+    "machine": "tool",
+    "engine": "tool",
+    "pipe": "tool",
+    "crane": "tool",
+    "medical equipment": "tool",
+    "equipment": "tool",
+
+    # food
+    "food": "food",
+    "bread": "food",
+    "fruit": "food",
+    "vegetable": "food",
+    "vegetables": "food",
+    "grain": "food",
+    "hay": "food",
+
+    # generic objects / scene objects
+    "table": "object",
+    "chair": "object",
+    "bench": "object",
+    "basket": "object",
+    "bag": "object",
+    "bucket": "object",
+    "barrel": "object",
+    "box": "object",
+    "crate": "object",
+    "umbrella": "object",
+    "street lamp": "object",
+    "traffic light": "object",
+    "street sign": "object",
+    "sign": "object",
+    "crosswalk": "object",
+    "sidewalk": "object",
+    "road": "object",
+    "street": "object",
+    "path": "object",
+    "trail": "object",
+    "field": "object",
+    "rock": "object",
+    "sky": "object",
+    "water": "object",
+    "river": "object",
+    "lake": "object",
+    "waterfall": "object",
+    "mountain": "object",
+    "sand": "object",
+    "wave": "object",
+    "stage": "object",
+    "screen": "object",
+    "counter": "object",
+    "desk": "object",
+    "display": "object",
+    "ball": "object",
+    "goal": "object",
+    "net": "object",
+    "helmet": "object",
+    "computer": "object",
+    "monitor": "object",
+    "whiteboard": "object",
+    "book": "object",
+    "cabinet": "object",
+    "lamp": "object",
+    "cooking pot": "object",
+    "bowl": "object",
+    "sink": "object",
+}
+
+
+# ---------------------------------------------------------------------
 # Places365 scene groups
 # ---------------------------------------------------------------------
 
@@ -277,6 +438,9 @@ UNIVERSAL_GROUNDING_PROMPT_BATCHES = {
             "cat",
             "bird",
             "zebra",
+            "tiger",
+            "lion",
+            "giraffe"
         ],
         "box_threshold": 0.25,
         "text_threshold": 0.20,
@@ -773,3 +937,67 @@ SPATIAL_RELATION_ALLOWED_LABELS = (
 )
 
 SPATIAL_RELATION_EXCLUDED_LABELS = BACKGROUND_LAYOUT_LABELS
+
+# ---------------------------------------------------------------------
+# Semantic salience
+# ---------------------------------------------------------------------
+
+CATEGORY_IMPORTANCE_WEIGHTS = {
+    "human": 1.00,
+    "animal": 0.95,
+    "vehicle": 0.85,
+    "tool": 0.75,
+    "food": 0.70,
+    "structure": 0.60,
+    "vegetation": 0.50,
+    "object": 0.40,
+    "other": 0.30,
+}
+
+
+# ---------------------------------------------------------------------
+# Scene-specific entity importance
+# ---------------------------------------------------------------------
+
+SCENE_ENTITY_IMPORTANCE = {
+    group: {
+        term: 0.85
+        for term in terms
+    }
+    for group, terms in SCENE_EXPANSION_VOCABS.items()
+}
+
+SCENE_ENTITY_IMPORTANCE["rural_traditional"].update({
+    "person": 1.0,
+    "horse": 1.0,
+    "wagon": 0.95,
+    "cart": 0.95,
+    "cow": 0.90,
+    "sheep": 0.90,
+})
+
+SCENE_ENTITY_IMPORTANCE["urban_transport"].update({
+    "person": 1.0,
+    "car": 0.95,
+    "bus": 0.95,
+    "truck": 0.95,
+    "bicycle": 0.90,
+    "traffic light": 0.90,
+})
+
+SCENE_ENTITY_IMPORTANCE["market_public"].update({
+    "person": 1.0,
+    "crowd": 1.0,
+    "vendor": 1.0,
+    "basket": 0.90,
+    "fruit": 0.90,
+    "vegetable": 0.90,
+    "vegetables": 0.90,
+})
+
+SCENE_ENTITY_IMPORTANCE["natural_outdoor"].update({
+    "person": 1.0,
+    "horse": 0.90,
+    "dog": 0.85,
+    "bird": 0.80,
+})

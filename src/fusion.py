@@ -5,52 +5,25 @@ from src.schemas import (
 )
 from src.captioning import build_caption
 from src.workflow_b.spatial_relations import build_spatial_relations
+from src.workflow_b.semantic_salience import (
+    compute_semantic_importance,
+)
+from src.workflow_b.constants import SCENE_GROUPS, CATEGORY_MAP
 
 
-CATEGORY_MAP = {
-    # humans
-    "person": "human",
-    "man": "human",
-    "woman": "human",
-    "child": "human",
+def infer_scene_group(scene_label: str) -> str | None:
+    scene_label = scene_label.lower()
 
-    # animals
-    "horse": "animal",
-    "dog": "animal",
-    "cat": "animal",
-    "donkey": "animal",
-    "cow": "animal",
-    "sheep": "animal",
+    for group_name, labels in SCENE_GROUPS.items():
+        if scene_label in labels:
+            return group_name
 
-    # vegetation
-    "tree": "vegetation",
-    "plant": "vegetation",
-
-    # structures
-    "building": "structure",
-    "house": "structure",
-
-    # vehicles
-    "cart": "vehicle",
-    "wagon": "vehicle",
-    "cart wagon": "vehicle",
-    "car": "vehicle",
-    "bicycle": "vehicle",
-
-    # tools / objects
-    "basket": "tool",
-    "tool": "tool",
-    "chair": "object",
-    "table": "object",
-
-    # food
-    "bread": "food",
-    "food": "food",
-}
+    return None
 
 
 def category_from_label(label: str) -> str:
-    return CATEGORY_MAP.get(label.strip().lower().replace("_", " "), "object")
+    normalized = label.strip().lower().replace("_", " ")
+    return CATEGORY_MAP.get(normalized, "object")
 
 
 def aggregate_core_entities(entity_records: list[dict]) -> list[Entity]:
@@ -109,6 +82,7 @@ def strip_extended_schema_fields(entity_geom: dict) -> dict:
         "position_coarse",
         "is_central",
         "salience_score",
+        "semantic_importance",
         "source",
     }
     return {key: value for key, value in entity_geom.items() if key in allowed}
@@ -148,6 +122,18 @@ def build_from_modules(
                     confidence=h["confidence"]
                 )
             )
+    interaction_entity_ids = set()
+
+    for interaction in interactions:
+        interaction_entity_ids.add(interaction.subject_id)
+        interaction_entity_ids.add(interaction.object_id)
+
+    for rec in entity_records:
+        rec["semantic_importance"] = compute_semantic_importance(
+            entity=rec,
+            scene_label=scene_label,
+            interaction_entity_ids=interaction_entity_ids,
+        )
 
     human_count = global_geom["category_counts"].get("human", 0)
 
