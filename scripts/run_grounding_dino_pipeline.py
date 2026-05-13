@@ -243,6 +243,7 @@ def main() -> None:
         interactions=core.observed_interactions,
         spatial_relations=[r.model_dump() for r in core.spatial_relations],
         indoor_outdoor=core.scene.indoor_outdoor,
+        entities_extended=extended.model_dump()["entities_extended"]
     )
 
     output = {

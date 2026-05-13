@@ -14,7 +14,7 @@ def describe_spatial_relations(
     entities: list,
     max_relations: int = 1,
 ) -> str:
-    entity_by_id = {e.id: e.label for e in entities}
+    entity_by_id = {e.id: e for e in entities}
 
     verbalizable = {
         "left_of": "to the left of",
@@ -41,8 +41,11 @@ def describe_spatial_relations(
         if subj is None or obj is None:
             continue
 
+        if subj.category in {"object", "structure"} and obj.category in {"object", "structure"}:
+            continue
+
         phrases.append(
-            f"The {subj} is {verbalizable[relation]} the {obj}"
+            f"The {subj.label} is {verbalizable[relation]} the {obj.label}"
         )
 
         if len(phrases) >= max_relations:
@@ -50,16 +53,56 @@ def describe_spatial_relations(
 
     return ". ".join(phrases)
 
+def _importance_by_label(
+    entities_extended: list[dict] | None,
+) -> dict[str, float]:
+    if not entities_extended:
+        return {}
+
+    scores: dict[str, float] = {}
+
+    for entity in entities_extended:
+        label = entity.get("label", "")
+        score = float(entity.get("semantic_importance", 0.0))
+
+        if label:
+            scores[label] = max(scores.get(label, 0.0), score)
+
+    return scores
+
+
+def _rank_entities_for_caption(
+    entities: list[Entity],
+    entities_extended: list[dict] | None = None,
+) -> list[Entity]:
+    importance = _importance_by_label(entities_extended)
+
+    return sorted(
+        entities,
+        key=lambda e: (
+            importance.get(e.label, 0.0),
+            e.confidence,
+            e.count_estimate,
+        ),
+        reverse=True,
+    )
+
 def build_caption(
     scene_label: str,
     entities: list[Entity],
     interactions: list[ObservedInteraction],
     indoor_outdoor: str | None = None,
     spatial_relations: list | None = None,
+    entities_extended: list[dict] | None = None,
 ) -> str:
     """Deterministic but more natural template caption."""
 
     entity_by_id = {e.id: e for e in entities}
+
+    ranked_entities = _rank_entities_for_caption(
+        entities=entities,
+        entities_extended=entities_extended,
+    )
 
     interaction_sentences = []
     used_entity_ids = set()
@@ -83,7 +126,7 @@ def build_caption(
         used_entity_ids.add(obj.id)
 
     context_entities = [
-        e for e in entities
+        e for e in ranked_entities
         if e.id not in used_entity_ids
         and e.category in {"object", "structure", "vegetation", "vehicle", "tool", "food"}
     ]
@@ -113,7 +156,7 @@ def build_caption(
             caption += " with " + _join_labels(context_labels[:3])
 
     else:
-        main_entities = [_entity_phrase(e) for e in entities[:5]]
+        main_entities = [_entity_phrase(e) for e in ranked_entities[:5]]
 
         if main_entities:
             caption = f"{_capitalize_article(scene_text)} with {_join_labels(main_entities)}"

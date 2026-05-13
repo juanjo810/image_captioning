@@ -3,7 +3,6 @@ from src.schemas import (
     CoreJSON, ExtendedJSON,
     Scene, Entity, ObservedInteraction, Environment
 )
-from src.captioning import build_caption
 from src.workflow_b.spatial_relations import build_spatial_relations
 from src.workflow_b.semantic_salience import (
     compute_semantic_importance,
@@ -148,11 +147,7 @@ def build_from_modules(
         lighting="unknown"
     )
 
-    caption = build_caption(
-        scene_label=scene_label,
-        entities=entities,
-        interactions=interactions,
-    )
+    caption = f"A {scene_label} scene."
 
     core = CoreJSON(
         image_id=image_id,
