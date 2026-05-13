@@ -16,20 +16,64 @@ CAPTION_SPATIAL_RELATIONS = {
 }
 
 
+def build_importance_by_label(
+    extended_json: dict[str, Any] | None,
+) -> dict[str, float]:
+    if not extended_json:
+        return {}
+
+    importance: dict[str, float] = {}
+
+    for entity in extended_json.get("entities_extended", []):
+        label = entity.get("label", "")
+        score = float(entity.get("semantic_importance", 0.0))
+
+        if label:
+            importance[label] = max(importance.get(label, 0.0), score)
+
+    return importance
+
+
+def rank_core_entities(
+    core_json: dict[str, Any],
+    extended_json: dict[str, Any] | None,
+    max_entities: int = 8,
+) -> list[dict[str, Any]]:
+    importance = build_importance_by_label(extended_json)
+
+    entities = core_json.get("entities", [])
+
+    ranked = sorted(
+        entities,
+        key=lambda e: (
+            importance.get(e.get("label", ""), 0.0),
+            float(e.get("confidence", 0.0)),
+            int(e.get("count_estimate", 1)),
+        ),
+        reverse=True,
+    )
+
+    return ranked[:max_entities]
+
+
 def select_caption_relevant_spatial_relations(
     core_json: dict[str, Any],
+    extended_json: dict[str, Any] | None,
     max_relations: int = 2,
 ) -> list[dict[str, Any]]:
-    relations = core_json.get("spatial_relations", [])
     entities = {
-        entity.get("id"): entity
-        for entity in core_json.get("entities", [])
+        e.get("id"): e
+        for e in core_json.get("entities", [])
     }
 
-    selected = []
+    importance_by_label = build_importance_by_label(extended_json)
 
-    for rel in relations:
-        if rel.get("relation") not in CAPTION_SPATIAL_RELATIONS:
+    scored = []
+
+    for rel in core_json.get("spatial_relations", []):
+        relation = rel.get("relation")
+
+        if relation not in CAPTION_SPATIAL_RELATIONS:
             continue
 
         subject = entities.get(rel.get("subject_id"))
@@ -38,23 +82,44 @@ def select_caption_relevant_spatial_relations(
         if subject is None or obj is None:
             continue
 
-        # Avoid unnatural captions like:
-        # "the building is to the right of the street lamp"
         if (
             subject.get("category") in {"object", "structure"}
             and obj.get("category") in {"object", "structure"}
         ):
             continue
 
-        selected.append(rel)
+        subject_importance = importance_by_label.get(
+            subject.get("label", ""),
+            float(subject.get("confidence", 0.0)),
+        )
+        object_importance = importance_by_label.get(
+            obj.get("label", ""),
+            float(obj.get("confidence", 0.0)),
+        )
 
-    selected = sorted(
-        selected,
-        key=lambda r: r.get("confidence", 0.0),
-        reverse=True,
-    )
+        if max(subject_importance, object_importance) < 0.45:
+            continue
 
-    return selected[:max_relations]
+        score = (
+            0.45 * float(rel.get("confidence", 0.0))
+            + 0.35 * subject_importance
+            + 0.20 * object_importance
+        )
+
+        cleaned = {
+            "subject_id": rel.get("subject_id"),
+            "subject_label": subject.get("label"),
+            "relation": relation,
+            "object_id": rel.get("object_id"),
+            "object_label": obj.get("label"),
+            "confidence": rel.get("confidence"),
+        }
+
+        scored.append((score, cleaned))
+
+    scored = sorted(scored, key=lambda x: x[0], reverse=True)
+
+    return [item for _, item in scored[:max_relations]]
 
 
 def build_caption_payload(
@@ -63,9 +128,17 @@ def build_caption_payload(
 ) -> dict[str, Any]:
     return {
         "scene": core_json.get("scene", {}),
-        "entities": core_json.get("entities", []),
+        "entities": rank_core_entities(
+            core_json=core_json,
+            extended_json=extended_json,
+            max_entities=8,
+        ),
         "observed_interactions": core_json.get("observed_interactions", []),
-        "spatial_relations": select_caption_relevant_spatial_relations(core_json),
+        "spatial_relations": select_caption_relevant_spatial_relations(
+            core_json=core_json,
+            extended_json=extended_json,
+            max_relations=2,
+        ),
         "environment": core_json.get("environment", {}),
     }
 
@@ -73,7 +146,10 @@ def build_llm_caption_prompt(
     core_json: dict[str, Any],
     extended_json: dict[str, Any] | None = None,
 ) -> str:
-    payload = build_caption_payload(core_json, extended_json)
+    payload = build_caption_payload(
+        core_json=core_json,
+        extended_json=extended_json,
+    )
 
     return (
         "You are given a structured JSON representation extracted from an image.\n"
@@ -88,7 +164,7 @@ def build_llm_caption_prompt(
         "- Do not mention bounding boxes, confidences, ids, metadata, or JSON structure.\n"
         "- Mention the scene if useful.\n"
         "- Keep the caption natural and concise.\n"
-        "- If confidence is low or information is sparse, remain generic.\n"
+        "- If information is sparse, remain generic.\n"
         "- Return only the caption, with no explanation.\n\n"
         "JSON:\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
@@ -198,6 +274,9 @@ def caption_json_file(
     data["metadata"]["llm_backend"] = "gemma_transformers"
     data["metadata"]["llm_model"] = captioner.model_id
     data["metadata"]["caption_source"] = "structured_json_only"
+    data["metadata"]["caption_payload"] = "semantic_importance_ranked"
+    data["metadata"]["caption_max_entities"] = 8
+    data["metadata"]["caption_max_spatial_relations"] = 2
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
