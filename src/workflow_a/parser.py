@@ -10,6 +10,17 @@ class WorkflowAParseError(ValueError):
     pass
 
 
+CORE_KEYS = {
+    "image_id",
+    "scene",
+    "entities",
+    "observed_interactions",
+    "spatial_relations",
+    "environment",
+    "caption",
+}
+
+
 def _strip_code_fences(text: str) -> str:
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
@@ -34,8 +45,9 @@ def _candidate_strings(text: str) -> list[str]:
     return [candidate for candidate in candidates if candidate]
 
 
-def _decode_first_json_object(candidate: str) -> dict[str, Any] | None:
+def _decode_json_objects(candidate: str) -> list[dict[str, Any]]:
     decoder = JSONDecoder()
+    objects: list[dict[str, Any]] = []
 
     for match in re.finditer(r"{", candidate):
         fragment = candidate[match.start():].strip()
@@ -47,19 +59,49 @@ def _decode_first_json_object(candidate: str) -> dict[str, Any] | None:
             continue
 
         if isinstance(obj, dict):
-            return obj
+            objects.append(obj)
 
-    return None
+    return objects
+
+
+def _score_object(obj: dict[str, Any]) -> int:
+    if isinstance(obj.get("core"), dict):
+        core = obj["core"]
+        return 100 + len(CORE_KEYS.intersection(core.keys()))
+
+    return len(CORE_KEYS.intersection(obj.keys()))
+
+
+def _select_best_object(objects: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not objects:
+        return None
+
+    scored = sorted(
+        objects,
+        key=lambda obj: (_score_object(obj), len(obj.keys())),
+        reverse=True,
+    )
+
+    best = scored[0]
+
+    if _score_object(best) <= 1:
+        return None
+
+    return best
 
 
 def extract_json_block(text: str) -> dict[str, Any]:
+    all_objects: list[dict[str, Any]] = []
+
     for candidate in _candidate_strings(text):
-        obj = _decode_first_json_object(candidate)
-        if obj is not None:
-            return obj
+        all_objects.extend(_decode_json_objects(candidate))
+
+    obj = _select_best_object(all_objects)
+    if obj is not None:
+        return obj
 
     preview = text.strip().replace("\n", " ")[:500]
     raise WorkflowAParseError(
-        "No valid JSON object found in model output. "
+        "No complete Workflow A JSON object found in model output. "
         f"Output preview: {preview}"
     )
