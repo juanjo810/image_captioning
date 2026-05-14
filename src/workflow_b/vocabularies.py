@@ -6,6 +6,7 @@ from src.workflow_b.constants import(
     UNIVERSAL_GROUNDING_PROMPT_BATCHES,
     SCENE_EXPANSION_VOCABS
 )
+from src.workflow_b.places365_mapping import PLACES365_TO_SCENE_GROUP
 
 
 
@@ -13,8 +14,21 @@ def normalize_scene_label(label: str) -> str:
     return label.strip().lower().replace("_", " ").replace("/", " ")
 
 
+
 def scene_groups_for_label(scene_label: str) -> list[str]:
     normalized = normalize_scene_label(scene_label)
+
+    # -------------------------------------------------------------
+    # First try the exhaustive Places365 mapping.
+    # -------------------------------------------------------------
+    mapped_group = PLACES365_TO_SCENE_GROUP.get(normalized)
+
+    if mapped_group is not None:
+        return [mapped_group]
+
+    # -------------------------------------------------------------
+    # Fallback to legacy manual group matching.
+    # -------------------------------------------------------------
     groups = []
 
     for group_name, labels in SCENE_GROUPS.items():
@@ -22,6 +36,7 @@ def scene_groups_for_label(scene_label: str) -> list[str]:
             groups.append(group_name)
 
     return groups
+
 
 
 def infer_indoor_outdoor_from_scene(scene_label: str) -> str:
@@ -44,8 +59,10 @@ def infer_indoor_outdoor_from_scene(scene_label: str) -> str:
     return "unknown"
 
 
+
 def build_prompt_from_terms(terms: list[str]) -> str:
     return ", ".join(terms)
+
 
 
 def iter_universal_prompt_batches():
@@ -61,6 +78,7 @@ def iter_universal_prompt_batches():
             "box_threshold": batch["box_threshold"],
             "text_threshold": batch["text_threshold"],
         }
+
 
 def iter_scene_expansion_prompt_batches(scene_label: str | None):
     """Yield scene-aware prompt batches derived from Places365 scene groups."""
@@ -81,6 +99,8 @@ def iter_scene_expansion_prompt_batches(scene_label: str | None):
             "box_threshold": 0.28,
             "text_threshold": 0.22,
         }
+
+
 
 def iter_grounding_prompt_batches(scene_label: str | None = None):
     """Yield universal + optional scene-aware Grounding DINO prompts."""
