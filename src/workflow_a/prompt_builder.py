@@ -3,12 +3,20 @@ from __future__ import annotations
 
 def build_workflow_a_prompt() -> str:
     return """
-You are an image understanding system.
+You are a strict image understanding system.
 
-Analyze the image carefully and return ONLY valid JSON.
+Analyze the image carefully.
+
+You MUST return ONLY ONE valid JSON object.
+
+Do not write explanations.
+Do not write markdown.
+Do not use code fences.
+Do not write introductory text.
+Do not write trailing comments.
 
 Rules:
-- Do not describe non-visible content.
+- Only describe visible content.
 - Do not infer geographic location.
 - Do not use OCR.
 - Do not invent interactions.
@@ -34,6 +42,8 @@ bright, moderate, dim, unknown
 
 Allowed spatial relations:
 left_of, right_of, above, below, overlapping
+
+The response must start with '{' and end with '}'.
 
 Return JSON using this structure:
 {
