@@ -28,8 +28,15 @@ class WorkflowAPipeline:
         json_dir = output_dir / "json"
         captions_dir = output_dir / "captions"
         manifests_dir = output_dir / "manifests"
+        failed_dir = output_dir / "failed"
 
-        for directory in [raw_dir, json_dir, captions_dir, manifests_dir]:
+        for directory in [
+            raw_dir,
+            json_dir,
+            captions_dir,
+            manifests_dir,
+            failed_dir,
+        ]:
             directory.mkdir(parents=True, exist_ok=True)
 
         prompt = build_workflow_a_prompt()
@@ -41,12 +48,31 @@ class WorkflowAPipeline:
             temperature=temperature,
         )
 
-        parsed = extract_json_block(raw_output)
+        raw_path = raw_dir / f"{image_path.stem}.txt"
+        raw_path.write_text(raw_output, encoding="utf-8")
 
-        core = validate_workflow_a_output(
-            parsed,
-            image_id=image_path.stem,
-        )
+        try:
+            parsed = extract_json_block(raw_output)
+
+            core = validate_workflow_a_output(
+                parsed,
+                image_id=image_path.stem,
+            )
+
+        except Exception as exc:
+            failed_payload = {
+                "image_id": image_path.stem,
+                "error": str(exc),
+                "raw_path": str(raw_path),
+            }
+
+            failed_path = failed_dir / f"{image_path.stem}.json"
+            failed_path.write_text(
+                json.dumps(failed_payload, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            raise
 
         metadata = {
             "workflow": "A",
@@ -64,9 +90,6 @@ class WorkflowAPipeline:
             "core": core.model_dump(),
             "metadata": metadata,
         }
-
-        raw_path = raw_dir / f"{image_path.stem}.txt"
-        raw_path.write_text(raw_output, encoding="utf-8")
 
         json_path = json_dir / f"{image_path.stem}.json"
         json_path.write_text(
