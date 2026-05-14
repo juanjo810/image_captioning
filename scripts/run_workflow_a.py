@@ -47,7 +47,7 @@ def main() -> None:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.0,
+        default=1.0,
     )
 
     args = parser.parse_args()
