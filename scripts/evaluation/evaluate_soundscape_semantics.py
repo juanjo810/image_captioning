@@ -134,6 +134,109 @@ DISCRETE_SOUND_FAMILIES = {
     "food_market",
 }
 
+# Acoustic relevance weights. These weights do not change detections; they only
+# affect evaluation. They encode the intuition that missing a tractor, crowd,
+# horse, or river matters more for a future soundscape than missing a bench,
+# window, or generic path.
+FAMILY_ACOUSTIC_IMPORTANCE_WEIGHTS = {
+    "human": 1.00,
+    "animal": 0.95,
+    "vehicle": 0.95,
+    "water": 0.90,
+    "music_instrument": 0.90,
+    "tool_machinery": 0.75,
+    "food_market": 0.55,
+    "nature_context": 0.45,
+    "built_context": 0.35,
+}
+
+LABEL_ACOUSTIC_IMPORTANCE_OVERRIDES = {
+    # Humans / density cues
+    "crowd": 1.00,
+    "audience": 0.95,
+    "person": 0.90,
+    "man": 0.85,
+    "woman": 0.85,
+    "child": 0.85,
+    "vendor": 0.80,
+
+    # Animals
+    "horse": 0.95,
+    "cow": 0.90,
+    "sheep": 0.85,
+    "goat": 0.85,
+    "dog": 0.80,
+    "bird": 0.75,
+    "cat": 0.65,
+
+    # Vehicles / transport
+    "tractor": 1.00,
+    "truck": 0.95,
+    "bus": 0.95,
+    "train": 0.95,
+    "tram": 0.90,
+    "car": 0.85,
+    "motorcycle": 0.85,
+    "boat": 0.85,
+    "ship": 0.85,
+    "wagon": 0.80,
+    "cart": 0.75,
+    "bicycle": 0.55,
+    "wheelchair": 0.45,
+
+    # Water / ambience
+    "waterfall": 1.00,
+    "river": 0.90,
+    "sea": 0.90,
+    "ocean": 0.90,
+    "wave": 0.85,
+    "water": 0.75,
+    "lake": 0.70,
+
+    # Tools / machinery / instruments
+    "machine": 0.90,
+    "engine": 0.90,
+    "crane": 0.85,
+    "forklift": 0.85,
+    "instrument": 0.90,
+    "speaker": 0.80,
+    "microphone": 0.75,
+    "tool": 0.70,
+    "farm tool": 0.75,
+    "plow": 0.80,
+    "traffic light": 0.45,
+    "street lamp": 0.25,
+
+    # Food / market activity cues
+    "market stall": 0.65,
+    "stand": 0.55,
+    "basket": 0.45,
+    "crate": 0.45,
+    "food": 0.50,
+    "bread": 0.45,
+    "fruit": 0.40,
+    "vegetables": 0.40,
+
+    # Context mostly affects ambience, not discrete events
+    "forest": 0.55,
+    "tree": 0.40,
+    "field": 0.45,
+    "field crop": 0.45,
+    "grass": 0.25,
+    "sky": 0.15,
+    "road": 0.35,
+    "street": 0.35,
+    "building": 0.30,
+    "house": 0.35,
+    "church": 0.45,
+    "barn": 0.45,
+    "stable": 0.45,
+    "bench": 0.15,
+    "bag": 0.10,
+    "window": 0.10,
+    "door": 0.15,
+}
+
 # Background must be scene-driven, because the ambience layer is determined by
 # Places365 scene predictions rather than by arbitrary object labels.
 BACKGROUND_SCENE_FAMILIES: dict[str, str] = {
@@ -271,6 +374,24 @@ def label_to_acoustic_family(label: str) -> str | None:
     return None
 
 
+def acoustic_importance(label: str) -> float:
+    label = normalize_text(label)
+
+    if label in LABEL_ACOUSTIC_IMPORTANCE_OVERRIDES:
+        return LABEL_ACOUSTIC_IMPORTANCE_OVERRIDES[label]
+
+    family = label_to_acoustic_family(label)
+
+    if family is None:
+        return 0.20
+
+    return FAMILY_ACOUSTIC_IMPORTANCE_WEIGHTS.get(family, 0.20)
+
+
+def family_acoustic_importance(family: str) -> float:
+    return FAMILY_ACOUSTIC_IMPORTANCE_WEIGHTS.get(family, 0.20)
+
+
 def verb_to_interaction_family(verb: str, *, use_other_fallback: bool = True) -> str | None:
     verb = normalize_text(verb)
 
@@ -308,6 +429,31 @@ def prf(pred: set[Any], gt: set[Any]) -> tuple[float, float, float]:
     tp = len(pred & gt)
     precision = tp / len(pred) if pred else 0.0
     recall = tp / len(gt) if gt else 0.0
+    f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
+
+    return precision, recall, f1
+
+
+def weighted_prf(
+    pred: set[str],
+    gt: set[str],
+    weight_fn,
+) -> tuple[float, float, float]:
+    """Precision/recall/F1 where each matched item contributes its weight."""
+
+    if not pred and not gt:
+        return 1.0, 1.0, 1.0
+
+    if not pred or not gt:
+        return 0.0, 0.0, 0.0
+
+    matched = pred & gt
+    matched_weight = sum(weight_fn(item) for item in matched)
+    pred_weight = sum(weight_fn(item) for item in pred)
+    gt_weight = sum(weight_fn(item) for item in gt)
+
+    precision = matched_weight / pred_weight if pred_weight > 0 else 0.0
+    recall = matched_weight / gt_weight if gt_weight > 0 else 0.0
     f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
 
     return precision, recall, f1
@@ -425,6 +571,25 @@ def count_bin_accuracy(pred_counts: dict[str, int], gt_counts: dict[str, int]) -
     return correct / len(families)
 
 
+def weighted_count_bin_accuracy(pred_counts: dict[str, int], gt_counts: dict[str, int]) -> float:
+    families = sorted(set(pred_counts) | set(gt_counts))
+
+    if not families:
+        return 1.0
+
+    total_weight = 0.0
+    correct_weight = 0.0
+
+    for family in families:
+        weight = family_acoustic_importance(family)
+        total_weight += weight
+
+        if count_bin(pred_counts.get(family, 0)) == count_bin(gt_counts.get(family, 0)):
+            correct_weight += weight
+
+    return correct_weight / total_weight if total_weight > 0 else 0.0
+
+
 def weighted_presence_recall(pred_families: set[str], gt_families: set[str]) -> float:
     relevant_gt = gt_families & DISCRETE_SOUND_FAMILIES
 
@@ -432,6 +597,22 @@ def weighted_presence_recall(pred_families: set[str], gt_families: set[str]) -> 
         return 1.0
 
     return len(pred_families & relevant_gt) / len(relevant_gt)
+
+
+def acoustic_weighted_discrete_presence_recall(
+    pred_families: set[str],
+    gt_families: set[str],
+) -> float:
+    relevant_gt = gt_families & DISCRETE_SOUND_FAMILIES
+
+    if not relevant_gt:
+        return 1.0
+
+    matched = pred_families & relevant_gt
+    matched_weight = sum(family_acoustic_importance(f) for f in matched)
+    gt_weight = sum(family_acoustic_importance(f) for f in relevant_gt)
+
+    return matched_weight / gt_weight if gt_weight > 0 else 0.0
 
 
 def compute_image_metrics(
@@ -459,6 +640,11 @@ def compute_image_metrics(
     gt_labels = {canonicalize(label, object_alias) for label in gt_objects}
 
     exact_p, exact_r, exact_f1 = prf(pred_labels, gt_labels)
+    weighted_exact_p, weighted_exact_r, weighted_exact_f1 = weighted_prf(
+        pred_labels,
+        gt_labels,
+        acoustic_importance,
+    )
 
     pred_counts = prediction_family_counts(pred_json, object_alias)
     gt_counts = gt_family_counts(gt_objects, object_alias)
@@ -467,10 +653,20 @@ def compute_image_metrics(
     gt_families = set(gt_counts)
 
     family_p, family_r, family_f1 = prf(pred_families, gt_families)
+    weighted_family_p, weighted_family_r, weighted_family_f1 = weighted_prf(
+        pred_families,
+        gt_families,
+        family_acoustic_importance,
+    )
 
     pred_discrete = pred_families & DISCRETE_SOUND_FAMILIES
     gt_discrete = gt_families & DISCRETE_SOUND_FAMILIES
     discrete_p, discrete_r, discrete_f1 = prf(pred_discrete, gt_discrete)
+    weighted_discrete_p, weighted_discrete_r, weighted_discrete_f1 = weighted_prf(
+        pred_discrete,
+        gt_discrete,
+        family_acoustic_importance,
+    )
 
     pred_interaction_fams = prediction_interaction_families(pred_json, relationship_alias)
     gt_interaction_fams = gt_interaction_families(gt_relationships, relationship_alias)
@@ -498,14 +694,28 @@ def compute_image_metrics(
         "entity_exact_precision": exact_p,
         "entity_exact_recall": exact_r,
         "entity_exact_f1": exact_f1,
+        "weighted_entity_exact_precision": weighted_exact_p,
+        "weighted_entity_exact_recall": weighted_exact_r,
+        "weighted_entity_exact_f1": weighted_exact_f1,
         "entity_family_precision": family_p,
         "entity_family_recall": family_r,
         "entity_family_f1": family_f1,
+        "weighted_entity_family_precision": weighted_family_p,
+        "weighted_entity_family_recall": weighted_family_r,
+        "weighted_entity_family_f1": weighted_family_f1,
         "discrete_family_precision": discrete_p,
         "discrete_family_recall": discrete_r,
         "discrete_family_f1": discrete_f1,
+        "weighted_discrete_family_precision": weighted_discrete_p,
+        "weighted_discrete_family_recall": weighted_discrete_r,
+        "weighted_discrete_family_f1": weighted_discrete_f1,
         "family_count_bin_accuracy": count_bin_accuracy(pred_counts, gt_counts),
+        "weighted_family_count_bin_accuracy": weighted_count_bin_accuracy(pred_counts, gt_counts),
         "weighted_discrete_presence_recall": weighted_presence_recall(pred_families, gt_families),
+        "acoustic_weighted_discrete_presence_recall": acoustic_weighted_discrete_presence_recall(
+            pred_families,
+            gt_families,
+        ),
         "interaction_family_precision": int_p,
         "interaction_family_recall": int_r,
         "interaction_family_f1": int_f1,
