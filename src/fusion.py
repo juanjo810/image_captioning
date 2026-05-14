@@ -3,53 +3,57 @@ from src.schemas import (
     CoreJSON, ExtendedJSON,
     Scene, Entity, ObservedInteraction, Environment
 )
-from src.captioning import build_caption
+from src.workflow_b.spatial_relations import build_spatial_relations
+from src.workflow_b.semantic_salience import (
+    compute_semantic_importance,
+)
+from src.workflow_b.constants import SCENE_GROUPS, CATEGORY_MAP
 
 
-CATEGORY_MAP = {
-    # humans
-    "person": "human",
-    "man": "human",
-    "woman": "human",
-    "child": "human",
+def infer_scene_group(scene_label: str) -> str | None:
+    scene_label = scene_label.lower()
 
-    # animals
-    "horse": "animal",
-    "dog": "animal",
-    "cat": "animal",
-    "donkey": "animal",
-    "cow": "animal",
-    "sheep": "animal",
+    for group_name, labels in SCENE_GROUPS.items():
+        if scene_label in labels:
+            return group_name
 
-    # vegetation
-    "tree": "vegetation",
-    "plant": "vegetation",
-
-    # structures
-    "building": "structure",
-    "house": "structure",
-
-    # vehicles
-    "cart": "vehicle",
-    "wagon": "vehicle",
-    "cart wagon": "vehicle",
-    "car": "vehicle",
-    "bicycle": "vehicle",
-
-    # tools / objects
-    "basket": "tool",
-    "tool": "tool",
-    "chair": "object",
-    "table": "object",
-
-    # food
-    "bread": "food",
-    "food": "food",
-}
+    return None
 
 
 def category_from_label(label: str) -> str:
-    return CATEGORY_MAP.get(label.strip().lower().replace("_", " "), "object")
+    normalized = label.strip().lower().replace("_", " ")
+    return CATEGORY_MAP.get(normalized, "object")
+
+
+def aggregate_core_entities(entity_records: list[dict]) -> list[Entity]:
+    """Aggregate instance-level detections into CORE semantic entities.
+
+    EXTENDED keeps individual boxes. CORE should represent semantic entities
+    compactly, with count_estimate summarizing how many instances were detected.
+    """
+    grouped: dict[tuple[str, str], list[dict]] = {}
+
+    for record in entity_records:
+        label = record["label"].strip().lower().replace("_", " ")
+        category = record["category"]
+        grouped.setdefault((label, category), []).append(record)
+
+    entities: list[Entity] = []
+
+    for idx, ((label, category), records) in enumerate(grouped.items(), start=1):
+        confidence = max(r["confidence"] for r in records)
+
+        entities.append(
+            Entity(
+                id=f"e{idx}",
+                label=label,
+                category=category,
+                count_estimate=len(records),
+                confidence=confidence,
+            )
+        )
+
+    return entities
 
 
 def match_bbox(bbox, entities_ext):
@@ -68,12 +72,16 @@ def match_bbox(bbox, entities_ext):
 def strip_extended_schema_fields(entity_geom: dict) -> dict:
     allowed = {
         "id",
+        "label",
+        "category",
+        "confidence",
         "bbox",
         "bbox_area_ratio",
         "relative_size",
         "position_coarse",
         "is_central",
         "salience_score",
+        "semantic_importance",
         "source",
     }
     return {key: value for key, value in entity_geom.items() if key in allowed}
@@ -97,15 +105,7 @@ def build_from_modules(
 
     global_geom = compute_global_geometry(entity_records)
 
-    entities = [
-        Entity(
-            id=e["id"],
-            label=e["label"],
-            category=category_from_label(e["label"]),
-            confidence=e["confidence"]
-        )
-        for e in entity_records
-    ]
+    entities = aggregate_core_entities(entity_records)
 
     interactions = []
     for h in hoi:
@@ -121,6 +121,18 @@ def build_from_modules(
                     confidence=h["confidence"]
                 )
             )
+    interaction_entity_ids = set()
+
+    for interaction in interactions:
+        interaction_entity_ids.add(interaction.subject_id)
+        interaction_entity_ids.add(interaction.object_id)
+
+    for rec in entity_records:
+        rec["semantic_importance"] = compute_semantic_importance(
+            entity=rec,
+            scene_label=scene_label,
+            interaction_entity_ids=interaction_entity_ids,
+        )
 
     human_count = global_geom["category_counts"].get("human", 0)
 
@@ -135,7 +147,7 @@ def build_from_modules(
         lighting="unknown"
     )
 
-    caption = build_caption(scene_label, entities, interactions)
+    caption = f"A {scene_label} scene."
 
     core = CoreJSON(
         image_id=image_id,
@@ -151,4 +163,13 @@ def build_from_modules(
         global_geometry=global_geom
     )
 
+    spatial_relations = build_spatial_relations(
+        entities_extended=extended.model_dump()["entities_extended"],
+        image_width=width,
+        image_height=height,
+    )
+
+    core.spatial_relations = spatial_relations
+
     return core, extended
+    
