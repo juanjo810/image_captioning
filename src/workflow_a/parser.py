@@ -2,26 +2,64 @@ from __future__ import annotations
 
 import json
 import re
+from json import JSONDecoder
+from typing import Any
 
 
-def extract_json_block(text: str) -> dict:
+class WorkflowAParseError(ValueError):
+    pass
+
+
+def _strip_code_fences(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+def _remove_trailing_commas(text: str) -> str:
+    return re.sub(r",\s*([}\]])", r"\1", text)
+
+
+def _candidate_strings(text: str) -> list[str]:
     text = text.strip()
 
-    fenced = re.findall(r"```json\s*(.*?)```", text, flags=re.DOTALL)
-    candidates = fenced if fenced else [text]
+    candidates: list[str] = []
 
-    for candidate in candidates:
-        candidate = candidate.strip()
+    fenced = re.findall(r"```(?:json)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    candidates.extend(_strip_code_fences(block) for block in fenced)
 
-        start = candidate.find("{")
-        end = candidate.rfind("}")
+    candidates.append(_strip_code_fences(text))
 
-        if start == -1 or end == -1:
-            continue
+    return [candidate for candidate in candidates if candidate]
+
+
+def _decode_first_json_object(candidate: str) -> dict[str, Any] | None:
+    decoder = JSONDecoder()
+
+    for match in re.finditer(r"{", candidate):
+        fragment = candidate[match.start():].strip()
+        fragment = _remove_trailing_commas(fragment)
 
         try:
-            return json.loads(candidate[start:end + 1])
+            obj, _ = decoder.raw_decode(fragment)
         except json.JSONDecodeError:
             continue
 
-    raise ValueError("No valid JSON object found in model output.")
+        if isinstance(obj, dict):
+            return obj
+
+    return None
+
+
+def extract_json_block(text: str) -> dict[str, Any]:
+    for candidate in _candidate_strings(text):
+        obj = _decode_first_json_object(candidate)
+        if obj is not None:
+            return obj
+
+    preview = text.strip().replace("\n", " ")[:500]
+    raise WorkflowAParseError(
+        "No valid JSON object found in model output. "
+        f"Output preview: {preview}"
+    )
