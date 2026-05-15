@@ -5,11 +5,19 @@ import json
 from pathlib import Path
 
 from src.workflow_a.adapters.gemma4_adapter import Gemma4Adapter
+from src.workflow_a.adapters.llamacpp_server_adapter import LlamaCppServerAdapter
 from src.workflow_a.pipeline import WorkflowAPipeline
 
 
 SUPPORTED_MODELS = {
     "gemma4": Gemma4Adapter,
+    "llamacpp": LlamaCppServerAdapter,
+}
+
+
+DEFAULT_MODEL_IDS = {
+    "gemma4": "google/gemma-4-E4B-it",
+    "llamacpp": "local-vlm",
 }
 
 
@@ -35,12 +43,18 @@ def main() -> None:
     parser.add_argument(
         "--model",
         choices=SUPPORTED_MODELS.keys(),
-        default="gemma4",
+        default="llamacpp",
     )
 
     parser.add_argument(
         "--model-id",
-        default="unsloth/gemma-4-E4B-it",
+        default=None,
+    )
+
+    parser.add_argument(
+        "--server-url",
+        default="http://localhost:8889",
+        help="llama.cpp OpenAI-compatible server URL.",
     )
 
     parser.add_argument(
@@ -57,16 +71,24 @@ def main() -> None:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=1.0,
+        default=0.0,
     )
 
     args = parser.parse_args()
 
     adapter_cls = SUPPORTED_MODELS[args.model]
 
-    adapter = adapter_cls(
-        model_id=args.model_id,
-    )
+    model_id = args.model_id or DEFAULT_MODEL_IDS[args.model]
+
+    if args.model == "llamacpp":
+        adapter = adapter_cls(
+            model_id=model_id,
+            base_url=args.server_url,
+        )
+    else:
+        adapter = adapter_cls(
+            model_id=model_id,
+        )
 
     pipeline = WorkflowAPipeline(adapter)
 
