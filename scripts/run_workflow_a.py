@@ -18,8 +18,18 @@ def main() -> None:
 
     parser.add_argument(
         "--image",
-        required=True,
         help="Input image path.",
+    )
+
+    parser.add_argument(
+        "--image-dir",
+        help="Directory with input images.",
+    )
+
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
     )
 
     parser.add_argument(
@@ -30,7 +40,7 @@ def main() -> None:
 
     parser.add_argument(
         "--model-id",
-        default="google/gemma-4-E4B-it",
+        default="unsloth/gemma-4-E4B-it",
     )
 
     parser.add_argument(
@@ -60,14 +70,32 @@ def main() -> None:
 
     pipeline = WorkflowAPipeline(adapter)
 
-    result = pipeline.run(
-        image_path=args.image,
-        output_dir=args.output_dir,
-        max_new_tokens=args.max_new_tokens,
-        temperature=args.temperature,
-    )
+    if args.image_dir:
+        image_paths = sorted(Path(args.image_dir).glob("*.jpg"))
 
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+        if args.limit is not None:
+            image_paths = image_paths[:args.limit]
+
+        for image_path in image_paths:
+            print(f"Processing {image_path.name}")
+
+            try:
+                pipeline.run(
+                    image_path=image_path,
+                    output_dir=args.output_dir,
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                )
+            except Exception as exc:
+                print(f"FAILED: {image_path.name} -> {exc}")
+
+    else:
+        pipeline.run(
+            image_path=args.image,
+            output_dir=args.output_dir,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+        )
 
 
 if __name__ == "__main__":
