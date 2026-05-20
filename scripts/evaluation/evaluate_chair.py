@@ -10,6 +10,33 @@ from pathlib import Path
 from scripts.evaluation.vg_utils import load_alias_map, canonicalize
 
 
+CORE_FIELDS = [
+    "detector",
+    "scene_model",
+    "captioner",
+    "CHAIRi_VG",
+    "CHAIRi_JSON",
+    "avg_caption_objects_mentioned",
+    "avg_hallucinated_vg",
+    "avg_hallucinated_json",
+    "n",
+]
+
+EXTENDED_FIELDS = [
+    "detector",
+    "scene_model",
+    "captioner",
+    "CHAIRs_VG",
+    "CHAIRi_VG",
+    "CHAIRs_JSON",
+    "CHAIRi_JSON",
+    "avg_caption_objects_mentioned",
+    "avg_hallucinated_vg",
+    "avg_hallucinated_json",
+    "n",
+]
+
+
 def normalize_text(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^a-z0-9\s]", " ", text)
@@ -71,7 +98,6 @@ def extract_caption_objects(
     caption_norm = normalize_text(caption)
     found = set()
 
-    # Longest terms first so "traffic light" is matched before "light".
     for obj in sorted(object_vocab, key=lambda x: len(x.split()), reverse=True):
         obj_norm = normalize_text(obj)
 
@@ -90,12 +116,6 @@ def chair_scores(
     caption_objects: set[str],
     reference_objects: set[str],
 ) -> tuple[float, float, int, int]:
-    """Return CHAIRs, CHAIRi, hallucinated_count, mentioned_count.
-
-    CHAIRi: fraction of mentioned objects that are hallucinated.
-    CHAIRs: 1 if the sentence has at least one hallucinated object, else 0.
-    """
-
     if not caption_objects:
         return 0.0, 0.0, 0, 0
 
@@ -107,6 +127,12 @@ def chair_scores(
     return chair_s, chair_i, len(hallucinated), len(caption_objects)
 
 
+def select_fieldnames(metrics_profile: str) -> list[str]:
+    if metrics_profile == "core":
+        return CORE_FIELDS
+    return EXTENDED_FIELDS
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
 
@@ -114,6 +140,12 @@ def main() -> None:
     parser.add_argument("--vg-object-refs", required=True)
     parser.add_argument("--object-alias", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--metrics-profile",
+        choices=["core", "extended"],
+        default="extended",
+        help="Use 'core' for compact paper-ready metrics or 'extended' for legacy metrics.",
+    )
 
     args = parser.parse_args()
 
@@ -200,24 +232,12 @@ def main() -> None:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fieldnames = [
-        "detector",
-        "scene_model",
-        "captioner",
-        "CHAIRs_VG",
-        "CHAIRi_VG",
-        "CHAIRs_JSON",
-        "CHAIRi_JSON",
-        "avg_caption_objects_mentioned",
-        "avg_hallucinated_vg",
-        "avg_hallucinated_json",
-        "n",
-    ]
+    fieldnames = select_fieldnames(args.metrics_profile)
 
     with output_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows({key: row.get(key, "") for key in fieldnames} for row in rows)
 
     print(f"[OK] CHAIR metrics saved to {output_path}")
 
