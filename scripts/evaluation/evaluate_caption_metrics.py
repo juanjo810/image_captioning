@@ -6,6 +6,26 @@ from collections import defaultdict
 from pathlib import Path
 
 
+CAPTION_CORE_FIELDS = [
+    "detector",
+    "scene_model",
+    "captioner",
+    "CIDEr",
+    "SPICE",
+    "n",
+]
+
+CAPTION_EXTENDED_FIELDS = [
+    "detector",
+    "scene_model",
+    "captioner",
+    "CIDEr",
+    "METEOR",
+    "SPICE",
+    "n",
+]
+
+
 def load_references(path: Path) -> dict[str, list[str]]:
     refs = defaultdict(list)
 
@@ -23,9 +43,13 @@ def load_predictions(manifest_path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def evaluate_condition(rows: list[dict], refs_by_image: dict[str, list[str]]) -> dict:
+def evaluate_condition(
+    rows: list[dict],
+    refs_by_image: dict[str, list[str]],
+    *,
+    metrics_profile: str,
+) -> dict:
     from pycocoevalcap.cider.cider import Cider
-    from pycocoevalcap.meteor.meteor import Meteor
     from pycocoevalcap.spice.spice import Spice
 
     gts = {}
@@ -43,23 +67,36 @@ def evaluate_condition(rows: list[dict], refs_by_image: dict[str, list[str]]) ->
         res[key] = [row["caption"]]
         
     if not gts:
-        return {
+        scores = {
             "CIDEr": 0.0,
-            "METEOR": 0.0,
             "SPICE": 0.0,
             "n": 0,
         }
+        if metrics_profile == "extended":
+            scores["METEOR"] = 0.0
+        return scores
 
     cider_score, _ = Cider().compute_score(gts, res)
-    meteor_score, _ = Meteor().compute_score(gts, res)
     spice_score, _ = Spice().compute_score(gts, res)
 
-    return {
+    scores = {
         "CIDEr": cider_score,
-        "METEOR": meteor_score,
         "SPICE": spice_score,
         "n": len(gts),
     }
+
+    if metrics_profile == "extended":
+        from pycocoevalcap.meteor.meteor import Meteor
+        meteor_score, _ = Meteor().compute_score(gts, res)
+        scores["METEOR"] = meteor_score
+
+    return scores
+
+
+def select_fieldnames(metrics_profile: str) -> list[str]:
+    if metrics_profile == "core":
+        return CAPTION_CORE_FIELDS
+    return CAPTION_EXTENDED_FIELDS
 
 
 def main() -> None:
@@ -68,6 +105,12 @@ def main() -> None:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--caption-refs", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--metrics-profile",
+        choices=["core", "extended"],
+        default="extended",
+        help="Use 'core' for paper-ready metrics or 'extended' for the full legacy output.",
+    )
 
     args = parser.parse_args()
 
@@ -87,7 +130,11 @@ def main() -> None:
     out_rows = []
 
     for (detector, scene_model, captioner), rows in grouped.items():
-        scores = evaluate_condition(rows, refs_by_image)
+        scores = evaluate_condition(
+            rows,
+            refs_by_image,
+            metrics_profile=args.metrics_profile,
+        )
 
         out_rows.append(
             {
@@ -101,12 +148,12 @@ def main() -> None:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fieldnames = ["detector", "scene_model", "captioner", "CIDEr", "METEOR", "SPICE", "n"]
+    fieldnames = select_fieldnames(args.metrics_profile)
 
     with output_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(out_rows)
+        writer.writerows({key: row.get(key, "") for key in fieldnames} for row in out_rows)
 
     print(f"[OK] Caption metrics saved to {output_path}")
 
