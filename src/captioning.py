@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-import json
-import os
 from typing import Any
 
 from src.schemas import Entity, ObservedInteraction
 
 
-from src.schemas import Entity, ObservedInteraction
-
 def describe_spatial_relations(
     spatial_relations: list[dict],
     entities: list,
-    max_relations: int = 1,
+    max_relations: int = 2,
 ) -> str:
     entity_by_id = {e.id: e for e in entities}
 
@@ -53,6 +49,7 @@ def describe_spatial_relations(
 
     return ". ".join(phrases)
 
+
 def _importance_by_label(
     entities_extended: list[dict] | None,
 ) -> dict[str, float]:
@@ -87,6 +84,7 @@ def _rank_entities_for_caption(
         reverse=True,
     )
 
+
 def build_caption(
     scene_label: str,
     entities: list[Entity],
@@ -95,7 +93,12 @@ def build_caption(
     spatial_relations: list | None = None,
     entities_extended: list[dict] | None = None,
 ) -> str:
-    """Deterministic but more natural template caption."""
+    """Build a richer deterministic caption from structured semantics.
+
+    The caption remains grounded in the JSON, but it is intentionally richer than
+    a one-sentence template so that caption metrics such as CLIPScore and SPICE
+    receive enough visual and relational context.
+    """
 
     entity_by_id = {e.id: e for e in entities}
 
@@ -103,6 +106,14 @@ def build_caption(
         entities=entities,
         entities_extended=entities_extended,
     )
+
+    scene_text = _scene_phrase(scene_label, indoor_outdoor)
+    sentences: list[str] = []
+
+    if scene_text:
+        sentences.append(f"The image shows {scene_text}")
+    else:
+        sentences.append("The image shows a visual scene")
 
     interaction_sentences = []
     used_entity_ids = set()
@@ -125,6 +136,18 @@ def build_caption(
         used_entity_ids.add(subject.id)
         used_entity_ids.add(obj.id)
 
+    main_entities = []
+    for entity in ranked_entities[:8]:
+        phrase = _entity_phrase(entity)
+        if phrase not in main_entities:
+            main_entities.append(phrase)
+
+    if main_entities:
+        sentences.append(f"Visible elements include {_join_labels(main_entities)}")
+
+    if interaction_sentences:
+        sentences.extend(interaction_sentences[:3])
+
     context_entities = [
         e for e in ranked_entities
         if e.id not in used_entity_ids
@@ -136,37 +159,30 @@ def build_caption(
         if entity.label not in context_labels:
             context_labels.append(entity.label)
 
-    scene_text = _scene_phrase(scene_label, indoor_outdoor)
+    if context_labels:
+        sentences.append(f"Additional contextual elements include {_join_labels(context_labels[:5])}")
 
-    spatial_sentence = ""
     if spatial_relations:
         spatial_sentence = describe_spatial_relations(
             spatial_relations=spatial_relations,
             entities=entities,
-            max_relations=1,
+            max_relations=2,
         )
+        if spatial_sentence:
+            sentences.append(spatial_sentence)
 
-    if interaction_sentences:
-        caption = interaction_sentences[0]
+    return _finalize_caption(sentences)
 
-        if scene_text:
-            caption += f" in {scene_text}"
 
-        if context_labels:
-            caption += " with " + _join_labels(context_labels[:3])
+def _finalize_caption(sentences: list[str]) -> str:
+    cleaned = []
 
-    else:
-        main_entities = [_entity_phrase(e) for e in ranked_entities[:5]]
+    for sentence in sentences:
+        sentence = sentence.strip().rstrip(".")
+        if sentence:
+            cleaned.append(sentence + ".")
 
-        if main_entities:
-            caption = f"{_capitalize_article(scene_text)} with {_join_labels(main_entities)}"
-        else:
-            caption = f"{_capitalize_article(scene_text)}"
-
-    if spatial_sentence:
-        caption += f". {spatial_sentence}"
-
-    return caption.strip() + "."
+    return " ".join(cleaned) or "A visual scene."
 
 
 def _entity_phrase(entity: Entity) -> str:
@@ -223,12 +239,6 @@ def _join_labels(labels: list[str]) -> str:
 
     return ", ".join(labels[:-1]) + f", and {labels[-1]}"
 
-
-def _capitalize_article(text: str) -> str:
-    if not text:
-        return "A scene"
-
-    return text[0].upper() + text[1:]
 
 def _clean_caption(caption: str) -> str:
     caption = caption.strip().strip('"').strip("'")
