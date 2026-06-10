@@ -11,7 +11,6 @@ from scripts.evaluation.evaluate_scene_awareness import (
     load_object_refs as load_scene_object_refs,
 )
 from scripts.evaluation.evaluate_soundscape_semantics import (
-    aggregate,
     configure_label_space,
     compute_image_metrics as compute_soundscape_metrics,
     load_object_refs,
@@ -19,9 +18,7 @@ from scripts.evaluation.evaluate_soundscape_semantics import (
     load_relationship_refs,
     write_csv,
 )
-from scripts.evaluation.evaluate_structured_vg import (
-    prf,
-)
+from scripts.evaluation.evaluate_structured_vg import prf
 from scripts.evaluation.vg_utils import (
     get_prediction_entities,
     get_prediction_interactions,
@@ -48,6 +45,22 @@ SCENE_AWARENESS_META_FIELDS = {
     "captioner",
     "scene_label",
     "scene_group",
+}
+
+# These counts are useful for debugging individual images, but they make the
+# summary CSV noisy and partly redundant with precision/recall/F1 metrics.
+# They are therefore kept in --per-image-output and omitted from --output.
+SUMMARY_DIAGNOSTIC_EXCLUDE_FIELDS = {
+    "n_gt_entities",
+    "n_pred_entities_norm",
+    "n_gt_interactions",
+    "n_pred_interactions_norm",
+    "n_pred_families",
+    "n_gt_families",
+    "n_pred_discrete_families",
+    "n_gt_discrete_families",
+    "n_pred_interaction_families",
+    "n_gt_interaction_families",
 }
 
 
@@ -134,11 +147,12 @@ def aggregate_all_semantic_metrics(rows: list[dict[str, Any]]) -> list[dict[str,
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
 
     for row in rows:
-        grouped[(row["detector"], row["scene_model"], row["captioner"])] .append(row)
+        grouped[(row["detector"], row["scene_model"], row["captioner"])].append(row)
 
     metric_keys = [
         key for key in rows[0].keys()
         if key not in SEMANTIC_CORE_FIELDS
+        and key not in SUMMARY_DIAGNOSTIC_EXCLUDE_FIELDS
     ]
 
     output = []
