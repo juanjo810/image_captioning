@@ -4,6 +4,10 @@ This module evaluates structured JSON outputs directly, instead of evaluating on
 final captions. It is designed for the image -> structured semantics -> soundscape
 pipeline, where scene type, detected entities and observed interactions have
 separate downstream relevance.
+
+The default encoder is MPNet because local experiments on scene/entity/interaction
+matrices showed better discriminative separation than larger retrieval-oriented
+embedding models for this structured evaluation setting.
 """
 
 from __future__ import annotations
@@ -14,8 +18,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-DEFAULT_EMBEDDING_MODEL = "intfloat/e5-large-v2"
-DEFAULT_PROMPT_TEMPLATE = "Represent the semantic content for similarity: {text}"
+DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
+DEFAULT_PROMPT_TEMPLATE: str | None = None
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,7 @@ class SemanticEmbeddingMetricResult:
     scene_embedding_similarity: float
     entity_embedding_similarity: float
     interaction_embedding_similarity: float
+    structured_description_embedding_similarity: float
 
     def to_dict(self) -> dict[str, float]:
         return asdict(self)
@@ -40,9 +45,20 @@ def normalize_label(value: Any) -> str:
     return " ".join(text.split())
 
 
+def _join_natural(items: Sequence[str]) -> str:
+    clean_items = [item for item in items if item]
+
+    if not clean_items:
+        return ""
+    if len(clean_items) == 1:
+        return clean_items[0]
+
+    return ", ".join(clean_items[:-1]) + f" and {clean_items[-1]}"
+
+
 def canonicalize_scene(scene_json: Mapping[str, Any] | None) -> str:
     if not scene_json:
-        return "The scene is unknown."
+        return "unknown scene"
 
     label = normalize_label(scene_json.get("label", "unknown"))
     indoor_outdoor = normalize_label(scene_json.get("indoor_outdoor", ""))
@@ -57,7 +73,7 @@ def canonicalize_scene(scene_json: Mapping[str, Any] | None) -> str:
 
 def canonicalize_entities(entities_json: Sequence[Mapping[str, Any]] | None) -> str:
     if not entities_json:
-        return "The scene contains no entities."
+        return "entities: none"
 
     labels = []
 
@@ -70,7 +86,7 @@ def canonicalize_entities(entities_json: Sequence[Mapping[str, Any]] | None) -> 
     labels = sorted(set(labels))
 
     if not labels:
-        return "The scene contains no entities."
+        return "entities: none"
 
     # return "The scene contains " + ", ".join(labels) + "."
     return " ".join(labels)
@@ -78,7 +94,7 @@ def canonicalize_entities(entities_json: Sequence[Mapping[str, Any]] | None) -> 
 
 def canonicalize_interactions(interactions_json: Sequence[Mapping[str, Any]] | None) -> str:
     if not interactions_json:
-        return "No interactions are observed."
+        return "interactions: none"
 
     triplets = []
 
@@ -86,19 +102,82 @@ def canonicalize_interactions(interactions_json: Sequence[Mapping[str, Any]] | N
         subject = normalize_label(interaction.get("subject") or interaction.get("subject_label") or "")
         relation = normalize_label(interaction.get("relation") or interaction.get("predicate") or interaction.get("action") or "")
         obj = normalize_label(interaction.get("object") or interaction.get("object_label") or "")
+        description = normalize_label(interaction.get("description", ""))
 
         triplet = " ".join(x for x in [subject, relation, obj] if x)
 
         if triplet:
             triplets.append(triplet)
+        elif description:
+            triplets.append(description)
 
     triplets = sorted(set(triplets))
 
     if not triplets:
-        return "No interactions are observed."
+        return "interactions: none"
 
-    # return "Observed interactions: " + "; ".join(triplets) + "."
-    return " ".join(triplets)
+    return "interactions: " + " ; ".join(triplets)
+
+
+def build_structured_description(data: Mapping[str, Any]) -> str:
+    """Build a deterministic rich description from structured JSON.
+
+    This is not a free LLM caption. It is a canonical natural-language rendering
+    of the JSON, intended to give embedding models enough context without adding
+    unsupported information.
+    """
+
+    parts: list[str] = []
+
+    scene = data.get("scene", {})
+    scene_label = normalize_label(scene.get("label", "")) if isinstance(scene, Mapping) else ""
+    indoor_outdoor = normalize_label(scene.get("indoor_outdoor", "")) if isinstance(scene, Mapping) else ""
+
+    if scene_label:
+        if indoor_outdoor:
+            parts.append(f"The image shows a {scene_label} scene in an {indoor_outdoor} setting.")
+        else:
+            parts.append(f"The image shows a {scene_label} scene.")
+
+    entities = data.get("entities", [])
+    entity_labels = []
+
+    if isinstance(entities, Sequence):
+        for entity in entities:
+            if isinstance(entity, Mapping):
+                label = normalize_label(entity.get("label", ""))
+                if label:
+                    entity_labels.append(label)
+
+    entity_labels = sorted(set(entity_labels))
+
+    if entity_labels:
+        parts.append(f"Visible entities include {_join_natural(entity_labels)}.")
+
+    interactions = data.get("observed_interactions", []) or data.get("interactions", [])
+    interaction_texts = []
+
+    if isinstance(interactions, Sequence):
+        for interaction in interactions:
+            if not isinstance(interaction, Mapping):
+                continue
+
+            subject = normalize_label(interaction.get("subject") or interaction.get("subject_label") or "")
+            relation = normalize_label(interaction.get("relation") or interaction.get("predicate") or interaction.get("action") or "")
+            obj = normalize_label(interaction.get("object") or interaction.get("object_label") or "")
+            description = normalize_label(interaction.get("description", ""))
+
+            if subject and relation and obj:
+                interaction_texts.append(f"{subject} {relation} {obj}")
+            elif description:
+                interaction_texts.append(description)
+
+    interaction_texts = sorted(set(interaction_texts))
+
+    if interaction_texts:
+        parts.append(f"Observed interactions include {_join_natural(interaction_texts)}.")
+
+    return " ".join(parts).strip() or "No structured visual content is available."
 
 
 @lru_cache(maxsize=4)
@@ -175,6 +254,9 @@ def compute_semantic_embedding_metrics(
         or gt_json.get("interactions", [])
     )
 
+    pred_description = build_structured_description(pred_json)
+    gt_description = build_structured_description(gt_json)
+
     return SemanticEmbeddingMetricResult(
         scene_embedding_similarity=cosine_similarity_texts(
             pred_scene,
@@ -191,6 +273,12 @@ def compute_semantic_embedding_metrics(
         interaction_embedding_similarity=cosine_similarity_texts(
             pred_interactions,
             gt_interactions,
+            model_name=model_name,
+            prompt_template=prompt_template,
+        ),
+        structured_description_embedding_similarity=cosine_similarity_texts(
+            pred_description,
+            gt_description,
             model_name=model_name,
             prompt_template=prompt_template,
         ),

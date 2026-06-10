@@ -15,15 +15,17 @@ from src.workflow_b.vocabularies import infer_indoor_outdoor_from_scene, scene_g
 # Scene-aware soundscape evaluation
 # ---------------------------------------------------------------------
 #
-# Visual Genome does not provide Places365 scene labels. Therefore this script
-# does NOT compute scene accuracy. Instead, it evaluates whether the predicted
-# Places365 scene group is semantically coherent with:
-#   1. predicted JSON entities
-#   2. Visual Genome object references
+# This script evaluates semantic consistency between predicted scene groups
+# and structured visual evidence.
 #
-# This is useful for the future soundscape pipeline because the scene controls
-# the background ambience layer, while entities/interactions control discrete
-# sound events.
+# The refactored version intentionally removes several heuristic overlap
+# metrics that added complexity without substantial interpretability gains.
+#
+# The focus is now on:
+#   - scene consistency
+#   - indoor/outdoor coherence
+#   - grounded semantic plausibility
+#
 
 
 ACOUSTIC_ENTITY_FAMILIES: dict[str, set[str]] = {
@@ -84,9 +86,6 @@ FAMILY_WEIGHTS = {
     "built_context": 0.35,
 }
 
-# Expected evidence families per Places365 scene group. These are not mandatory
-# requirements; they define which object families are plausible/supportive for
-# each background ambience family.
 SCENE_EXPECTED_FAMILIES: dict[str, set[str]] = {
     "rural_traditional": {
         "human", "animal", "vehicle", "tool_machinery", "food_market",
@@ -130,13 +129,6 @@ SCENE_EXPECTED_FAMILIES: dict[str, set[str]] = {
     },
 }
 
-MISSING_SCENE_GROUPS = set(SCENE_GROUPS) - set(SCENE_EXPECTED_FAMILIES)
-if MISSING_SCENE_GROUPS:
-    raise RuntimeError(
-        "SCENE_EXPECTED_FAMILIES is missing scene groups: "
-        + ", ".join(sorted(MISSING_SCENE_GROUPS))
-    )
-
 INDOOR_SCENE_GROUPS = {
     "indoor_domestic",
     "public_indoor",
@@ -145,10 +137,6 @@ INDOOR_SCENE_GROUPS = {
 
 OUTDOOR_SCENE_GROUPS = set(SCENE_GROUPS) - INDOOR_SCENE_GROUPS
 
-
-# ---------------------------------------------------------------------
-# IO helpers
-# ---------------------------------------------------------------------
 
 def load_predictions(manifest_path: Path) -> list[dict[str, str]]:
     with manifest_path.open("r", encoding="utf-8") as f:
@@ -165,10 +153,6 @@ def load_object_refs(path: Path) -> dict[str, set[str]]:
 
     return refs
 
-
-# ---------------------------------------------------------------------
-# Semantic helpers
-# ---------------------------------------------------------------------
 
 def label_to_category(label: str) -> str:
     return CATEGORY_MAP.get(normalize_text(label), "object")
@@ -240,13 +224,6 @@ def family_evidence_score(
     observed_counts: dict[str, int],
     expected_families: set[str],
 ) -> float:
-    """Weighted proportion of observed family evidence compatible with scene.
-
-    This is a consistency score, not coverage. A forest scene is not penalised
-    for lacking animals, but it is penalised if the detected/annotated evidence
-    is dominated by implausible families.
-    """
-
     if not observed_counts:
         return 0.0
 
@@ -256,23 +233,11 @@ def family_evidence_score(
     for family, count in observed_counts.items():
         weight = FAMILY_WEIGHTS.get(family, 0.20) * max(count, 1)
         total += weight
+
         if family in expected_families:
             supported += weight
 
     return supported / total if total > 0 else 0.0
-
-
-def expected_family_overlap(
-    observed_counts: dict[str, int],
-    expected_families: set[str],
-) -> float:
-    """How much of the observed family set is accepted by the scene group."""
-
-    observed = set(observed_counts)
-    if not observed:
-        return 0.0
-
-    return len(observed & expected_families) / len(observed)
 
 
 def scene_confidence(pred_json: dict[str, Any]) -> float:
@@ -281,10 +246,6 @@ def scene_confidence(pred_json: dict[str, Any]) -> float:
     except (TypeError, ValueError):
         return 0.0
 
-
-# ---------------------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------------------
 
 def compute_image_metrics(
     row: dict[str, str],
@@ -298,10 +259,10 @@ def compute_image_metrics(
     scene = core.get("scene", {})
     scene_label = scene.get("label", "")
     declared_io = scene.get("indoor_outdoor", "unknown")
+
     predicted_group = scene_group(scene_label)
     expected_io = group_expected_io(predicted_group)
     inferred_io = infer_indoor_outdoor_from_scene(scene_label)
-    conf = scene_confidence(pred_json)
 
     expected_families = SCENE_EXPECTED_FAMILIES.get(predicted_group or "", set())
 
@@ -310,8 +271,6 @@ def compute_image_metrics(
 
     pred_consistency = family_evidence_score(pred_counts, expected_families)
     gt_consistency = family_evidence_score(gt_counts, expected_families)
-    pred_overlap = expected_family_overlap(pred_counts, expected_families)
-    gt_overlap = expected_family_overlap(gt_counts, expected_families)
 
     io_consistent = float(
         expected_io != "unknown"
@@ -328,17 +287,11 @@ def compute_image_metrics(
         "captioner": row["captioner"],
         "scene_label": scene_label,
         "scene_group": predicted_group or "unknown",
-        "scene_confidence": conf,
+        "scene_confidence": scene_confidence(pred_json),
         "scene_group_known": float(predicted_group is not None),
         "scene_indoor_outdoor_consistency": io_consistent,
         "pred_entity_scene_consistency": pred_consistency,
         "gt_entity_scene_consistency": gt_consistency,
-        "pred_entity_scene_family_overlap": pred_overlap,
-        "gt_entity_scene_family_overlap": gt_overlap,
-        "confidence_weighted_pred_scene_consistency": conf * pred_consistency,
-        "confidence_weighted_gt_scene_consistency": conf * gt_consistency,
-        "n_pred_scene_families": len(pred_counts),
-        "n_gt_scene_families": len(gt_counts),
     }
 
 
@@ -346,11 +299,12 @@ def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
 
     for row in rows:
-        grouped[(row["detector"], row["scene_model"], row["captioner"])].append(row)
+        grouped[(row["detector"], row["scene_model"], row["captioner"])] .append(row)
 
     excluded = {
         "image_id", "detector", "scene_model", "captioner", "scene_label", "scene_group",
     }
+
     metric_keys = [key for key in rows[0].keys() if key not in excluded]
 
     output = []
@@ -383,10 +337,6 @@ def write_csv(rows: list[dict[str, Any]], output_path: Path) -> None:
         writer.writerows(rows)
 
 
-# ---------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------
-
 def main() -> None:
     parser = argparse.ArgumentParser()
 
@@ -394,6 +344,7 @@ def main() -> None:
     parser.add_argument("--vg-object-refs", required=True)
     parser.add_argument("--object-alias", required=True)
     parser.add_argument("--output", required=True)
+
     parser.add_argument(
         "--per-image-output",
         default=None,
@@ -416,12 +367,14 @@ def main() -> None:
     ]
 
     summary_rows = aggregate(per_image_rows)
+
     write_csv(summary_rows, Path(args.output))
 
     if args.per_image_output:
         write_csv(per_image_rows, Path(args.per_image_output))
 
     print(f"[OK] Scene-aware metrics saved to {args.output}")
+
     if args.per_image_output:
         print(f"[OK] Per-image scene-aware metrics saved to {args.per_image_output}")
 

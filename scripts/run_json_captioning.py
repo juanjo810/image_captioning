@@ -37,7 +37,7 @@ def build_importance_by_label(
 def rank_core_entities(
     core_json: dict[str, Any],
     extended_json: dict[str, Any] | None,
-    max_entities: int = 8,
+    max_entities: int = 10,
 ) -> list[dict[str, Any]]:
     importance = build_importance_by_label(extended_json)
 
@@ -59,7 +59,7 @@ def rank_core_entities(
 def select_caption_relevant_spatial_relations(
     core_json: dict[str, Any],
     extended_json: dict[str, Any] | None,
-    max_relations: int = 2,
+    max_relations: int = 3,
 ) -> list[dict[str, Any]]:
     entities = {
         e.get("id"): e
@@ -131,16 +131,17 @@ def build_caption_payload(
         "entities": rank_core_entities(
             core_json=core_json,
             extended_json=extended_json,
-            max_entities=8,
+            max_entities=10,
         ),
         "observed_interactions": core_json.get("observed_interactions", []),
         "spatial_relations": select_caption_relevant_spatial_relations(
             core_json=core_json,
             extended_json=extended_json,
-            max_relations=2,
+            max_relations=3,
         ),
         "environment": core_json.get("environment", {}),
     }
+
 
 def build_llm_caption_prompt(
     core_json: dict[str, Any],
@@ -153,42 +154,50 @@ def build_llm_caption_prompt(
 
     return (
         "You are given a structured JSON representation extracted from an image.\n"
-        "Write one concise natural image caption using only the information present in the JSON.\n\n"
+        "Write one grounded but semantically rich image description using only the information present in the JSON.\n\n"
+        "Goal:\n"
+        "- Produce a caption that is informative enough for CLIPScore and SPICE evaluation.\n"
+        "- Preserve scene type, important visible entities, observed interactions and useful spatial/contextual details.\n\n"
         "Rules:\n"
         "- Do not add objects, people, animals, locations, actions, or attributes not present in the JSON.\n"
-        "- Do not infer geographic locations.\n"
+        "- Do not infer geographic locations, cultural identity, weather, time of day, or historical context unless explicitly present.\n"
         "- Do not invent actions not present in observed_interactions.\n"
         "- Prefer observed_interactions when available.\n"
-        "- Use spatial_relations only when they make the caption more natural.\n"
-        "- Do not mention technical relations such as overlapping.\n"
-        "- Do not mention bounding boxes, confidences, ids, metadata, or JSON structure.\n"
-        "- Mention the scene if useful.\n"
-        "- Keep the caption natural and concise.\n"
-        "- If information is sparse, remain generic.\n"
-        "- Return only the caption, with no explanation.\n\n"
+        "- Use spatial_relations only when they improve naturalness and are supported by the JSON.\n"
+        "- Mention the scene when useful.\n"
+        "- Include the most important entities and contextual elements.\n"
+        "- Keep the description grounded, factual and natural, not poetic.\n"
+        "- Avoid storytelling or speculation.\n"
+        "- Do not mention bounding boxes, confidences, ids, metadata, JSON structure, or extraction uncertainty.\n"
+        "- Write one paragraph of 1-3 sentences.\n"
+        "- Return only the caption.\n\n"
         "JSON:\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
+
 
 def clean_caption(caption: str) -> str:
     caption = caption.strip()
     caption = caption.replace("<end_of_turn>", "").strip()
     caption = caption.strip('"').strip("'")
 
-    if "\n" in caption:
-        caption = caption.splitlines()[0].strip()
+    if not caption:
+        return "A visual scene."
+
+    lines = [line.strip() for line in caption.splitlines() if line.strip()]
+    caption = " ".join(lines)
 
     if caption and not caption.endswith("."):
         caption += "."
 
-    return caption or "A visual scene."
+    return caption
 
 
 class GemmaCaptioner:
     def __init__(
         self,
         model_id: str,
-        max_new_tokens: int = 80,
+        max_new_tokens: int = 120,
         temperature: float = 1.0,
         top_p: float = 0.95,
         top_k: int = 64,
@@ -274,9 +283,9 @@ def caption_json_file(
     data["metadata"]["llm_backend"] = "gemma_transformers"
     data["metadata"]["llm_model"] = captioner.model_id
     data["metadata"]["caption_source"] = "structured_json_only"
-    data["metadata"]["caption_payload"] = "semantic_importance_ranked"
-    data["metadata"]["caption_max_entities"] = 8
-    data["metadata"]["caption_max_spatial_relations"] = 2
+    data["metadata"]["caption_payload"] = "semantic_importance_ranked_rich"
+    data["metadata"]["caption_max_entities"] = 10
+    data["metadata"]["caption_max_spatial_relations"] = 3
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -321,7 +330,7 @@ def main() -> None:
     parser.add_argument(
         "--max-new-tokens",
         type=int,
-        default=80,
+        default=120,
     )
 
     parser.add_argument(
@@ -371,4 +380,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    
