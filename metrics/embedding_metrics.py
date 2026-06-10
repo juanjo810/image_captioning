@@ -64,9 +64,11 @@ def canonicalize_scene(scene_json: Mapping[str, Any] | None) -> str:
     indoor_outdoor = normalize_label(scene_json.get("indoor_outdoor", ""))
 
     if indoor_outdoor:
-        return f"scene: {label}; setting: {indoor_outdoor}"
+        # return f"The scene is {label}. The setting is {indoor_outdoor}."
+        return f"{label} {indoor_outdoor}."
 
-    return f"scene: {label}"
+    # return f"The scene is {label}."
+    return f"{label}"
 
 
 def canonicalize_entities(entities_json: Sequence[Mapping[str, Any]] | None) -> str:
@@ -86,7 +88,8 @@ def canonicalize_entities(entities_json: Sequence[Mapping[str, Any]] | None) -> 
     if not labels:
         return "entities: none"
 
-    return "entities: " + " ".join(labels)
+    # return "The scene contains " + ", ".join(labels) + "."
+    return " ".join(labels)
 
 
 def canonicalize_interactions(interactions_json: Sequence[Mapping[str, Any]] | None) -> str:
