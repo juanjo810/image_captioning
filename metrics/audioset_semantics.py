@@ -1,59 +1,61 @@
 from __future__ import annotations
 
-"""AudioSet-inspired semantic layer for acoustic scene evaluation.
+"""Ontology-driven AudioSet semantic layer for acoustic scene evaluation.
 
-This module intentionally uses a reduced, editable subset of the AudioSet
-ontology. It maps visible scene evidence to plausible acoustic semantics with
-deterministic rules only; it does not claim that a sound is audible in the
-image. The goal is to evaluate whether predicted structured JSON preserves the
-same soundscape-relevant concepts as Visual Genome references.
+Visual Genome does not provide real AudioSet labels. This module maps visible
+scene evidence to plausible acoustic semantics with deterministic rules, then
+projects those pseudo-labels onto the AudioSet ontology. It does not claim that
+the corresponding sound is audible in the image.
 """
 
 from collections import Counter
 from typing import Any, Iterable
 
+from metrics.audioset_ontology import AudioSetOntology, load_audioset_ontology
 from scripts.evaluation.evaluate_structured_vg import prf
 from scripts.evaluation.vg_utils import canonicalize, normalize_text
 
 
-# Reduced AudioSet-inspired tag taxonomy. Keys are detailed tags; values are
-# high-level categories used for the coarser evaluation layer.
-AUDIOSET_TAG_TO_CATEGORY: dict[str, str] = {
-    "speech": "human_sounds",
-    "singing": "human_sounds",
-    "crowd": "human_sounds",
-    "footsteps": "human_sounds",
-    "animal_vocalization": "animal_sounds",
-    "bird_vocalization": "animal_sounds",
-    "dog_bark": "animal_sounds",
-    "cat_meow": "animal_sounds",
-    "livestock": "animal_sounds",
-    "horse": "animal_sounds",
-    "music": "music",
-    "musical_instrument": "music",
-    "percussion": "music",
-    "bell": "bells",
-    "church_bell": "bells",
-    "water": "water",
-    "stream": "water",
-    "waves": "water",
-    "waterfall": "water",
-    "wind": "wind_weather",
-    "rain": "wind_weather",
-    "thunder": "wind_weather",
-    "engine": "tools_vehicles",
-    "vehicle": "tools_vehicles",
-    "train": "tools_vehicles",
-    "boat": "tools_vehicles",
-    "tools": "tools_vehicles",
-    "machinery": "tools_vehicles",
-    "wood_impact": "tools_vehicles",
-    "market_activity": "public_activity",
-    "cooking": "public_activity",
+# Visual Genome has no AudioSet labels. These deterministic concepts are
+# acoustic-semantic pseudo-labels inferred from visible objects and
+# relationships, then resolved to real AudioSet ontology node IDs.
+AUDIOSET_CONCEPT_TO_NODE_NAME: dict[str, str] = {
+    "speech": "Speech",
+    "singing": "Singing",
+    "crowd": "Crowd",
+    "footsteps": "Walk, footsteps",
+    "animal_vocalization": "Animal",
+    "bird_vocalization": "Bird vocalization, bird call, bird song",
+    "dog_bark": "Bark",
+    "cat_meow": "Meow",
+    "livestock": "Livestock, farm animals, working animals",
+    "horse": "Horse",
+    "music": "Music",
+    "musical_instrument": "Musical instrument",
+    "percussion": "Percussion",
+    "bell": "Bell",
+    "church_bell": "Church bell",
+    "water": "Water",
+    "stream": "Stream",
+    "waves": "Waves, surf",
+    "waterfall": "Waterfall",
+    "wind": "Wind",
+    "rain": "Rain",
+    "thunder": "Thunder",
+    "engine": "Engine",
+    "vehicle": "Vehicle",
+    "train": "Train",
+    "boat": "Boat, Water vehicle",
+    "tools": "Tools",
+    "machinery": "Mechanisms",
+    "wood_impact": "Chop",
+    "market_activity": "Crowd",
+    "cooking": "Chopping (food)",
 }
 
 
-# Entity/object evidence. Values are detailed AudioSet-inspired tags.
+# Entity/object evidence. Values are internal acoustic concepts that must
+# resolve to ontology node IDs before evaluation.
 ENTITY_TO_AUDIOSET_TAGS: dict[str, set[str]] = {
     # Human presence and activity
     "person": {"speech", "footsteps"},
@@ -236,10 +238,12 @@ def _add_tags(
     tags: Iterable[str],
     *,
     amount: int = 1,
+    ontology: AudioSetOntology,
 ) -> None:
     for tag in tags:
-        if tag in AUDIOSET_TAG_TO_CATEGORY:
-            counts[tag] += max(1, amount)
+        node_id = ontology.resolve_name(AUDIOSET_CONCEPT_TO_NODE_NAME.get(tag, tag))
+        if node_id:
+            counts[node_id] += max(1, amount)
 
 
 def tags_for_label(label: str) -> set[str]:
@@ -294,12 +298,62 @@ def tags_for_scene(scene_label: str) -> set[str]:
     return tags
 
 
-def categories_for_tags(tags: set[str]) -> set[str]:
+def parent_nodes_for_nodes(
+    node_ids: set[str],
+    ontology: AudioSetOntology,
+) -> set[str]:
     return {
-        AUDIOSET_TAG_TO_CATEGORY[tag]
-        for tag in tags
-        if tag in AUDIOSET_TAG_TO_CATEGORY
+        parent_id
+        for node_id in node_ids
+        if (parent_id := ontology.parent_or_self(node_id))
     }
+
+
+def top_level_nodes_for_nodes(
+    node_ids: set[str],
+    ontology: AudioSetOntology,
+) -> set[str]:
+    return {
+        top_level_id
+        for node_id in node_ids
+        if (top_level_id := ontology.top_level(node_id))
+    }
+
+
+def _node_names(node_ids: Iterable[str], ontology: AudioSetOntology) -> str:
+    return "|".join(
+        ontology.node_by_id[node_id].name
+        for node_id in sorted(node_ids, key=lambda item: ontology.node_by_id[item].name)
+    )
+
+
+def _node_paths(node_ids: Iterable[str], ontology: AudioSetOntology) -> str:
+    paths = []
+    for node_id in sorted(node_ids, key=lambda item: ontology.node_by_id[item].name):
+        path = " > ".join(ontology.path_names_to_root(node_id))
+        paths.append(path)
+    return "||".join(paths)
+
+
+def _average_best_pairwise_similarity(
+    pred_nodes: set[str],
+    ref_nodes: set[str],
+    similarity_fn,
+) -> float:
+    if not pred_nodes and not ref_nodes:
+        return 1.0
+    if not pred_nodes or not ref_nodes:
+        return 0.0
+
+    pred_best = [
+        max(similarity_fn(pred_node, ref_node) for ref_node in ref_nodes)
+        for pred_node in pred_nodes
+    ]
+    ref_best = [
+        max(similarity_fn(ref_node, pred_node) for pred_node in pred_nodes)
+        for ref_node in ref_nodes
+    ]
+    return (sum(pred_best) + sum(ref_best)) / (len(pred_best) + len(ref_best))
 
 
 def _prediction_entity_by_id(
@@ -318,14 +372,16 @@ def prediction_audioset_tag_counts(
     pred_json: dict[str, Any],
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
+    ontology: AudioSetOntology | None = None,
 ) -> dict[str, int]:
-    """Infer AudioSet-inspired detailed tag counts from predicted CORE JSON."""
+    """Infer AudioSet ontology node counts from predicted CORE JSON."""
 
+    ontology = ontology or load_audioset_ontology()
     counts: Counter[str] = Counter()
     core = pred_json.get("core", {})
 
     scene_label = core.get("scene", {}).get("label", "")
-    _add_tags(counts, tags_for_scene(scene_label))
+    _add_tags(counts, tags_for_scene(scene_label), ontology=ontology)
 
     for entity in core.get("entities", []):
         label = canonicalize(entity.get("label", ""), object_alias)
@@ -337,18 +393,23 @@ def prediction_audioset_tag_counts(
         except (TypeError, ValueError):
             count_estimate = 1
 
-        _add_tags(counts, tags_for_label(label), amount=count_estimate)
+        _add_tags(
+            counts,
+            tags_for_label(label),
+            amount=count_estimate,
+            ontology=ontology,
+        )
 
     entity_by_id = _prediction_entity_by_id(pred_json, object_alias)
 
     for interaction in core.get("observed_interactions", []):
         verb = canonicalize(interaction.get("verb", ""), relationship_alias)
-        _add_tags(counts, tags_for_predicate(verb))
+        _add_tags(counts, tags_for_predicate(verb), ontology=ontology)
 
         for endpoint_key in ("subject_id", "object_id"):
             endpoint_label = entity_by_id.get(interaction.get(endpoint_key))
             if endpoint_label:
-                _add_tags(counts, tags_for_label(endpoint_label))
+                _add_tags(counts, tags_for_label(endpoint_label), ontology=ontology)
 
     return dict(counts)
 
@@ -358,23 +419,29 @@ def reference_audioset_tag_counts(
     gt_relationships: set[tuple[str, str, str]],
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
+    ontology: AudioSetOntology | None = None,
 ) -> dict[str, int]:
-    """Infer AudioSet-inspired detailed tag counts from Visual Genome refs."""
+    """Infer AudioSet ontology node counts from Visual Genome pseudo-refs."""
 
+    ontology = ontology or load_audioset_ontology()
     counts: Counter[str] = Counter()
 
     for label in gt_objects:
         canonical = canonicalize(label, object_alias)
-        _add_tags(counts, tags_for_label(canonical))
+        _add_tags(counts, tags_for_label(canonical), ontology=ontology)
 
     for subject, predicate, object_ in gt_relationships:
         canonical_subject = canonicalize(subject, object_alias)
         canonical_object = canonicalize(object_, object_alias)
         canonical_predicate = canonicalize(predicate, relationship_alias)
 
-        _add_tags(counts, tags_for_predicate(canonical_predicate))
-        _add_tags(counts, tags_for_label(canonical_subject))
-        _add_tags(counts, tags_for_label(canonical_object))
+        _add_tags(
+            counts,
+            tags_for_predicate(canonical_predicate),
+            ontology=ontology,
+        )
+        _add_tags(counts, tags_for_label(canonical_subject), ontology=ontology)
+        _add_tags(counts, tags_for_label(canonical_object), ontology=ontology)
 
     return dict(counts)
 
@@ -386,43 +453,84 @@ def compute_audioset_metrics(
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
 ) -> dict[str, Any]:
-    """Compute detailed-tag and high-level-category PRF metrics."""
+    """Compute ontology-driven hierarchical AudioSet pseudo-reference metrics."""
+
+    ontology = load_audioset_ontology()
 
     pred_counts = prediction_audioset_tag_counts(
         pred_json=pred_json,
         object_alias=object_alias,
         relationship_alias=relationship_alias,
+        ontology=ontology,
     )
     ref_counts = reference_audioset_tag_counts(
         gt_objects=gt_objects,
         gt_relationships=gt_relationships,
         object_alias=object_alias,
         relationship_alias=relationship_alias,
+        ontology=ontology,
     )
 
-    pred_tags = set(pred_counts)
-    ref_tags = set(ref_counts)
-    tag_p, tag_r, tag_f1 = prf(pred_tags, ref_tags)
+    pred_nodes = set(pred_counts)
+    ref_nodes = set(ref_counts)
+    node_p, node_r, node_f1 = prf(pred_nodes, ref_nodes)
 
-    pred_categories = categories_for_tags(pred_tags)
-    ref_categories = categories_for_tags(ref_tags)
-    category_p, category_r, category_f1 = prf(pred_categories, ref_categories)
+    pred_parent_nodes = parent_nodes_for_nodes(pred_nodes, ontology)
+    ref_parent_nodes = parent_nodes_for_nodes(ref_nodes, ontology)
+    parent_p, parent_r, parent_f1 = prf(pred_parent_nodes, ref_parent_nodes)
+
+    pred_top_nodes = top_level_nodes_for_nodes(pred_nodes, ontology)
+    ref_top_nodes = top_level_nodes_for_nodes(ref_nodes, ontology)
+    top_p, top_r, top_f1 = prf(pred_top_nodes, ref_top_nodes)
+
+    lca_similarity = _average_best_pairwise_similarity(
+        pred_nodes,
+        ref_nodes,
+        ontology.lca_similarity,
+    )
+    tree_distance_similarity = _average_best_pairwise_similarity(
+        pred_nodes,
+        ref_nodes,
+        ontology.tree_distance_similarity,
+    )
 
     return {
-        "audioset_tag_precision": tag_p,
-        "audioset_tag_recall": tag_r,
-        "audioset_tag_f1": tag_f1,
-        "audioset_category_precision": category_p,
-        "audioset_category_recall": category_r,
-        "audioset_category_f1": category_f1,
-        "n_pred_audioset_tags": len(pred_tags),
-        "n_gt_audioset_tags": len(ref_tags),
-        "n_pred_audioset_categories": len(pred_categories),
-        "n_gt_audioset_categories": len(ref_categories),
-        "pred_audioset_tags": "|".join(sorted(pred_tags)),
-        "gt_audioset_tags": "|".join(sorted(ref_tags)),
-        "pred_audioset_categories": "|".join(sorted(pred_categories)),
-        "gt_audioset_categories": "|".join(sorted(ref_categories)),
+        "audioset_exact_node_precision": node_p,
+        "audioset_exact_node_recall": node_r,
+        "audioset_exact_node_f1": node_f1,
+        "audioset_parent_precision": parent_p,
+        "audioset_parent_recall": parent_r,
+        "audioset_parent_f1": parent_f1,
+        "audioset_top_level_precision": top_p,
+        "audioset_top_level_recall": top_r,
+        "audioset_top_level_f1": top_f1,
+        "audioset_lca_similarity": lca_similarity,
+        "audioset_tree_distance_similarity": tree_distance_similarity,
+        # Backward-compatible aliases retained for existing consumers.
+        "audioset_tag_precision": node_p,
+        "audioset_tag_recall": node_r,
+        "audioset_tag_f1": node_f1,
+        "audioset_category_precision": top_p,
+        "audioset_category_recall": top_r,
+        "audioset_category_f1": top_f1,
+        "n_pred_audioset_tags": len(pred_nodes),
+        "n_gt_audioset_tags": len(ref_nodes),
+        "n_pred_audioset_categories": len(pred_top_nodes),
+        "n_gt_audioset_categories": len(ref_top_nodes),
+        "n_pred_audioset_parent_nodes": len(pred_parent_nodes),
+        "n_gt_audioset_parent_nodes": len(ref_parent_nodes),
+        "pred_audioset_tags": "|".join(sorted(pred_nodes)),
+        "gt_audioset_tags": "|".join(sorted(ref_nodes)),
+        "pred_audioset_categories": "|".join(sorted(pred_top_nodes)),
+        "gt_audioset_categories": "|".join(sorted(ref_top_nodes)),
+        "pred_audioset_node_names": _node_names(pred_nodes, ontology),
+        "gt_audioset_node_names": _node_names(ref_nodes, ontology),
+        "pred_audioset_parent_node_names": _node_names(pred_parent_nodes, ontology),
+        "gt_audioset_parent_node_names": _node_names(ref_parent_nodes, ontology),
+        "pred_audioset_top_level_names": _node_names(pred_top_nodes, ontology),
+        "gt_audioset_top_level_names": _node_names(ref_top_nodes, ontology),
+        "pred_audioset_node_paths": _node_paths(pred_nodes, ontology),
+        "gt_audioset_node_paths": _node_paths(ref_nodes, ontology),
         "pred_audioset_tag_counts": "|".join(
             f"{tag}:{pred_counts[tag]}" for tag in sorted(pred_counts)
         ),
