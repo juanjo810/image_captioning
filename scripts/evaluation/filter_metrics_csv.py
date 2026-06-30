@@ -42,6 +42,18 @@ CORE_METRIC_FIELDS = {
         "interaction_family_f1",
         "n",
     ],
+    "audioset": [
+        "detector",
+        "scene_model",
+        "captioner",
+        "audioset_tag_precision",
+        "audioset_tag_recall",
+        "audioset_tag_f1",
+        "audioset_category_precision",
+        "audioset_category_recall",
+        "audioset_category_f1",
+        "n",
+    ],
 }
 
 

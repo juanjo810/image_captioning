@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from metrics.audioset_semantics import compute_audioset_metrics
 from scripts.evaluation.evaluate_scene_awareness import (
     compute_image_metrics as compute_scene_awareness_metrics,
     load_object_refs as load_scene_object_refs,
@@ -61,6 +62,16 @@ SUMMARY_DIAGNOSTIC_EXCLUDE_FIELDS = {
     "n_gt_discrete_families",
     "n_pred_interaction_families",
     "n_gt_interaction_families",
+    "n_pred_audioset_tags",
+    "n_gt_audioset_tags",
+    "n_pred_audioset_categories",
+    "n_gt_audioset_categories",
+    "pred_audioset_tags",
+    "gt_audioset_tags",
+    "pred_audioset_categories",
+    "gt_audioset_categories",
+    "pred_audioset_tag_counts",
+    "gt_audioset_tag_counts",
 }
 
 
@@ -70,9 +81,11 @@ def compute_structured_vg_metrics(
     relationship_refs: dict[str, set[tuple[str, str, str]]],
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
+    pred_json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     image_id = row["image_id"]
-    pred_json = load_json(row["json_path"])
+    if pred_json is None:
+        pred_json = load_json(row["json_path"])
 
     pred_entities = get_prediction_entities(pred_json, object_alias)
     gt_entities = object_refs.get(image_id, set())
@@ -114,6 +127,20 @@ def compute_image_all_semantic_metrics(
         relationship_refs=relationship_refs,
         object_alias=object_alias,
         relationship_alias=relationship_alias,
+        pred_json=pred_json,
+    )
+
+    pred_json = load_json(row["json_path"])
+    image_id = row["image_id"]
+    gt_objects = object_refs.get(image_id, set())
+    gt_relationships = relationship_refs.get(image_id, set())
+
+    audioset = compute_audioset_metrics(
+        pred_json=pred_json,
+        gt_objects=gt_objects,
+        gt_relationships=gt_relationships,
+        object_alias=object_alias,
+        relationship_alias=relationship_alias,
     )
 
     structured = compute_structured_vg_metrics(
@@ -138,6 +165,7 @@ def compute_image_all_semantic_metrics(
 
     return {
         **soundscape,
+        **audioset,
         **structured,
         **scene_awareness_metrics,
     }
