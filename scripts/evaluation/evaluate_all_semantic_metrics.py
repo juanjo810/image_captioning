@@ -121,19 +121,18 @@ def compute_image_all_semantic_metrics(
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
 ) -> dict[str, Any]:
+    pred_json = load_json(row["json_path"])
+    image_id = row["image_id"]
+    gt_objects = object_refs.get(image_id, set())
+    gt_relationships = relationship_refs.get(image_id, set())
+
     soundscape = compute_soundscape_metrics(
         row=row,
         object_refs=object_refs,
         relationship_refs=relationship_refs,
         object_alias=object_alias,
         relationship_alias=relationship_alias,
-        pred_json=pred_json,
     )
-
-    pred_json = load_json(row["json_path"])
-    image_id = row["image_id"]
-    gt_objects = object_refs.get(image_id, set())
-    gt_relationships = relationship_refs.get(image_id, set())
 
     audioset = compute_audioset_metrics(
         pred_json=pred_json,
@@ -149,6 +148,7 @@ def compute_image_all_semantic_metrics(
         relationship_refs=relationship_refs,
         object_alias=object_alias,
         relationship_alias=relationship_alias,
+        pred_json=pred_json,
     )
 
     scene_awareness = compute_scene_awareness_metrics(
