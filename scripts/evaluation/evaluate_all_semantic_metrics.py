@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from metrics.audioset_semantics import compute_audioset_metrics
 from scripts.evaluation.evaluate_scene_awareness import (
@@ -82,6 +87,7 @@ SUMMARY_DIAGNOSTIC_EXCLUDE_FIELDS = {
     "gt_audioset_node_paths",
     "pred_audioset_tag_counts",
     "gt_audioset_tag_counts",
+    "audioset_pred_source",
 }
 
 
@@ -130,6 +136,7 @@ def compute_image_all_semantic_metrics(
     scene_object_refs: dict[str, set[str]],
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
+    audioset_pred_source: str = "core_rules",
 ) -> dict[str, Any]:
     pred_json = load_json(row["json_path"])
     image_id = row["image_id"]
@@ -150,6 +157,7 @@ def compute_image_all_semantic_metrics(
         gt_relationships=gt_relationships,
         object_alias=object_alias,
         relationship_alias=relationship_alias,
+        pred_source=audioset_pred_source,
     )
 
     structured = compute_structured_vg_metrics(
@@ -235,6 +243,15 @@ def main() -> None:
         default=None,
         help="Optional path for per-image unified semantic metrics.",
     )
+    parser.add_argument(
+        "--audioset-pred-source",
+        choices=["core_rules", "vlm_nodes", "union"],
+        default="core_rules",
+        help=(
+            "Prediction source for AudioSet metrics: deterministic CORE rules, "
+            "direct VLM acoustic_semantics nodes, or their union."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -255,6 +272,7 @@ def main() -> None:
             scene_object_refs=scene_object_refs,
             object_alias=object_alias,
             relationship_alias=relationship_alias,
+            audioset_pred_source=args.audioset_pred_source,
         )
         for row in predictions
     ]

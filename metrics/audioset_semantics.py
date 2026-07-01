@@ -9,11 +9,14 @@ the corresponding sound is audible in the image.
 """
 
 from collections import Counter
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from metrics.audioset_ontology import AudioSetOntology, load_audioset_ontology
 from scripts.evaluation.evaluate_structured_vg import prf
 from scripts.evaluation.vg_utils import canonicalize, normalize_text
+
+
+AudioSetPredictionSource = Literal["core_rules", "vlm_nodes", "union"]
 
 
 # Visual Genome has no AudioSet labels. These deterministic concepts are
@@ -414,6 +417,72 @@ def prediction_audioset_tag_counts(
     return dict(counts)
 
 
+def vlm_audioset_tag_counts(
+    pred_json: dict[str, Any],
+    ontology: AudioSetOntology | None = None,
+) -> dict[str, int]:
+    """Read direct VLM AudioSet nodes from ``acoustic_semantics.nodes``.
+
+    The section is optional and represents visually inferred acoustic semantics.
+    Invalid, unknown, duplicated, or blacklisted ontology IDs are ignored.
+    """
+
+    ontology = ontology or load_audioset_ontology()
+    raw_nodes = pred_json.get("acoustic_semantics", {}).get("nodes", [])
+    if not isinstance(raw_nodes, list):
+        return {}
+
+    node_ids: set[str] = set()
+
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            continue
+
+        node_id = str(raw_node.get("id") or "").strip()
+        if ontology.is_usable_label(node_id):
+            node_ids.add(node_id)
+
+    return {node_id: 1 for node_id in sorted(node_ids)}
+
+
+def predicted_audioset_tag_counts(
+    pred_json: dict[str, Any],
+    object_alias: dict[str, str],
+    relationship_alias: dict[str, str],
+    ontology: AudioSetOntology,
+    pred_source: AudioSetPredictionSource = "core_rules",
+) -> dict[str, int]:
+    if pred_source == "core_rules":
+        return prediction_audioset_tag_counts(
+            pred_json=pred_json,
+            object_alias=object_alias,
+            relationship_alias=relationship_alias,
+            ontology=ontology,
+        )
+
+    if pred_source == "vlm_nodes":
+        return vlm_audioset_tag_counts(pred_json=pred_json, ontology=ontology)
+
+    if pred_source == "union":
+        counts: Counter[str] = Counter()
+        counts.update(
+            prediction_audioset_tag_counts(
+                pred_json=pred_json,
+                object_alias=object_alias,
+                relationship_alias=relationship_alias,
+                ontology=ontology,
+            )
+        )
+        for node_id in vlm_audioset_tag_counts(
+            pred_json=pred_json,
+            ontology=ontology,
+        ):
+            counts[node_id] = max(1, counts[node_id])
+        return dict(counts)
+
+    raise ValueError(f"Unknown AudioSet prediction source: {pred_source}")
+
+
 def reference_audioset_tag_counts(
     gt_objects: set[str],
     gt_relationships: set[tuple[str, str, str]],
@@ -452,16 +521,18 @@ def compute_audioset_metrics(
     gt_relationships: set[tuple[str, str, str]],
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
+    pred_source: AudioSetPredictionSource = "core_rules",
 ) -> dict[str, Any]:
     """Compute ontology-driven hierarchical AudioSet pseudo-reference metrics."""
 
     ontology = load_audioset_ontology()
 
-    pred_counts = prediction_audioset_tag_counts(
+    pred_counts = predicted_audioset_tag_counts(
         pred_json=pred_json,
         object_alias=object_alias,
         relationship_alias=relationship_alias,
         ontology=ontology,
+        pred_source=pred_source,
     )
     ref_counts = reference_audioset_tag_counts(
         gt_objects=gt_objects,
@@ -506,6 +577,7 @@ def compute_audioset_metrics(
         "audioset_top_level_f1": top_f1,
         "audioset_lca_similarity": lca_similarity,
         "audioset_tree_distance_similarity": tree_distance_similarity,
+        "audioset_pred_source": pred_source,
         # Backward-compatible aliases retained for existing consumers.
         "audioset_tag_precision": node_p,
         "audioset_tag_recall": node_r,
