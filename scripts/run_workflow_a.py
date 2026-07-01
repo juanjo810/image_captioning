@@ -74,6 +74,15 @@ def main() -> None:
         default=0.0,
     )
 
+    parser.add_argument(
+        "--include-audioset-nodes",
+        action="store_true",
+        help=(
+            "Ask the VLM to add a top-level acoustic_semantics section with "
+            "visually inferred AudioSet ontology nodes."
+        ),
+    )
+
     args = parser.parse_args()
 
     adapter_cls = SUPPORTED_MODELS[args.model]
@@ -107,6 +116,7 @@ def main() -> None:
                     output_dir=args.output_dir,
                     max_new_tokens=args.max_new_tokens,
                     temperature=args.temperature,
+                    include_audioset_nodes=args.include_audioset_nodes,
                 )
             except Exception as exc:
                 print(f"FAILED: {image_path.name} -> {exc}")
@@ -117,6 +127,7 @@ def main() -> None:
             output_dir=args.output_dir,
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
+            include_audioset_nodes=args.include_audioset_nodes,
         )
 
 

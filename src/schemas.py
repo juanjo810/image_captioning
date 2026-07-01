@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Dict
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -16,6 +16,12 @@ CrowdLevel = Literal["empty","sparse","moderate","dense","unknown"]
 ActivityLevel = Literal["low","medium","high","unknown"]
 LightingLevel = Literal["bright","moderate","dim","unknown"]
 RelativeSize = Literal["tiny","small","medium","large","dominant"]
+AudioSetInferenceType = Literal[
+    "visible_source",
+    "visible_action",
+    "scene_affordance",
+    "uncertain",
+]
 
 
 class StrictBaseModel(BaseModel):
@@ -95,3 +101,15 @@ class GlobalGeometry(StrictBaseModel):
 class ExtendedJSON(StrictBaseModel):
     entities_extended: list[EntityExtended] = Field(default_factory=list)
     global_geometry: GlobalGeometry
+
+
+class AcousticSemanticNode(StrictBaseModel):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    evidence: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+    inference_type: AudioSetInferenceType
+
+
+class AcousticSemantics(StrictBaseModel):
+    nodes: list[AcousticSemanticNode] = Field(default_factory=list)

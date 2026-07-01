@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from src.schemas import CoreJSON
+from src.schemas import AcousticSemantics, CoreJSON
 from src.workflow_b.constants import CATEGORY_MAP
 
 ENTITY_CATEGORIES = {
@@ -25,6 +25,12 @@ CROWD_LEVELS = {"empty", "sparse", "moderate", "dense", "unknown"}
 ACTIVITY_LEVELS = {"low", "medium", "high", "unknown"}
 LIGHTING_LEVELS = {"bright", "moderate", "dim", "unknown"}
 SPATIAL_RELATIONS = {"left_of", "right_of", "above", "below", "overlapping"}
+ACOUSTIC_INFERENCE_TYPES = {
+    "visible_source",
+    "visible_action",
+    "scene_affordance",
+    "uncertain",
+}
 
 
 def normalize_label(value: Any, default: str = "unknown") -> str:
@@ -165,3 +171,76 @@ def validate_workflow_a_output(payload: dict[str, Any], image_id: str | None = N
         return CoreJSON.model_validate(normalized)
     except ValidationError as exc:
         raise ValueError(f"Workflow A output is not compatible with CoreJSON: {exc}") from exc
+
+
+def normalize_acoustic_semantics_payload(
+    payload: dict[str, Any],
+    allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
+) -> dict[str, Any]:
+    """Normalize optional AudioSet pseudo-labels without changing CORE.
+
+    These are acoustically plausible ontology nodes inferred from visual
+    evidence, not claims about sounds actually heard in the image.
+    """
+
+    by_id = {node["id"]: node["name"] for node in allowed_audioset_nodes}
+    by_name = {normalize_label(node["name"], default=""): node["id"] for node in allowed_audioset_nodes}
+
+    raw_section = payload.get("acoustic_semantics")
+    if not isinstance(raw_section, dict):
+        return {"nodes": []}
+
+    raw_nodes = raw_section.get("nodes", [])
+    if not isinstance(raw_nodes, list):
+        return {"nodes": []}
+
+    normalized_nodes = []
+    seen_ids = set()
+
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            continue
+
+        node_id = str(raw_node.get("id") or "").strip()
+        node_name = normalize_label(raw_node.get("name"), default="")
+
+        if node_id not in by_id and node_name in by_name:
+            node_id = by_name[node_name]
+
+        if node_id not in by_id or node_id in seen_ids:
+            continue
+
+        evidence = str(raw_node.get("evidence") or "").strip()
+        if not evidence:
+            continue
+
+        inference_type = str(raw_node.get("inference_type") or "uncertain").strip().lower()
+        if inference_type not in ACOUSTIC_INFERENCE_TYPES:
+            inference_type = "uncertain"
+
+        normalized_nodes.append({
+            "id": node_id,
+            "name": by_id[node_id],
+            "evidence": evidence,
+            "confidence": normalize_confidence(raw_node.get("confidence"), default=0.5),
+            "inference_type": inference_type,
+        })
+        seen_ids.add(node_id)
+
+    return {"nodes": normalized_nodes}
+
+
+def validate_acoustic_semantics_output(
+    payload: dict[str, Any],
+    allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
+) -> AcousticSemantics:
+    normalized = normalize_acoustic_semantics_payload(
+        payload=payload,
+        allowed_audioset_nodes=allowed_audioset_nodes,
+    )
+    try:
+        return AcousticSemantics.model_validate(normalized)
+    except ValidationError as exc:
+        raise ValueError(
+            f"Workflow A acoustic_semantics output is not compatible with schema: {exc}"
+        ) from exc

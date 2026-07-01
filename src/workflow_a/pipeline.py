@@ -4,9 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.workflow_a.audioset_nodes import default_allowed_audioset_nodes
 from src.workflow_a.parser import extract_json_block
 from src.workflow_a.prompt_builder import build_workflow_a_prompt
-from src.workflow_a.validator import validate_workflow_a_output
+from src.workflow_a.validator import (
+    validate_acoustic_semantics_output,
+    validate_workflow_a_output,
+)
 
 
 class WorkflowAPipeline:
@@ -20,6 +24,7 @@ class WorkflowAPipeline:
         *,
         max_new_tokens: int = 512,
         temperature: float = 0.0,
+        include_audioset_nodes: bool = False,
     ) -> dict[str, Any]:
         image_path = Path(image_path)
         output_dir = Path(output_dir)
@@ -39,7 +44,15 @@ class WorkflowAPipeline:
         ]:
             directory.mkdir(parents=True, exist_ok=True)
 
-        prompt = build_workflow_a_prompt()
+        allowed_audioset_nodes = (
+            default_allowed_audioset_nodes()
+            if include_audioset_nodes
+            else ()
+        )
+        prompt = build_workflow_a_prompt(
+            include_audioset_nodes=include_audioset_nodes,
+            allowed_audioset_nodes=allowed_audioset_nodes,
+        )
 
         raw_output = self.vlm.generate(
             image_path=image_path,
@@ -57,6 +70,14 @@ class WorkflowAPipeline:
             core = validate_workflow_a_output(
                 parsed,
                 image_id=image_path.stem,
+            )
+            acoustic_semantics = (
+                validate_acoustic_semantics_output(
+                    parsed,
+                    allowed_audioset_nodes=allowed_audioset_nodes,
+                )
+                if include_audioset_nodes
+                else None
             )
 
         except Exception as exc:
@@ -78,18 +99,27 @@ class WorkflowAPipeline:
             "workflow": "A",
             "model_id": getattr(self.vlm, "model_id", "unknown"),
             "adapter": self.vlm.__class__.__name__,
-            "prompt_version": "workflow_a_core_v1",
+            "prompt_version": (
+                "workflow_a_core_audioset_v1"
+                if include_audioset_nodes
+                else "workflow_a_core_v1"
+            ),
             "image_id": image_path.stem,
+            "include_audioset_nodes": include_audioset_nodes,
             "generation_params": {
                 "temperature": temperature,
                 "max_new_tokens": max_new_tokens,
             },
         }
+        if include_audioset_nodes:
+            metadata["audioset_allowed_nodes"] = list(allowed_audioset_nodes)
 
         payload = {
             "core": core.model_dump(),
             "metadata": metadata,
         }
+        if acoustic_semantics is not None:
+            payload["acoustic_semantics"] = acoustic_semantics.model_dump()
 
         json_path = json_dir / f"{image_path.stem}.json"
         json_path.write_text(
