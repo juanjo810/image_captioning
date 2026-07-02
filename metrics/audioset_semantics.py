@@ -305,22 +305,20 @@ def parent_nodes_for_nodes(
     node_ids: set[str],
     ontology: AudioSetOntology,
 ) -> set[str]:
-    return {
-        parent_id
-        for node_id in node_ids
-        if (parent_id := ontology.parent_or_self(node_id))
-    }
+    parent_ids: set[str] = set()
+    for node_id in node_ids:
+        parent_ids.update(ontology.parents_or_self(node_id))
+    return parent_ids
 
 
 def top_level_nodes_for_nodes(
     node_ids: set[str],
     ontology: AudioSetOntology,
 ) -> set[str]:
-    return {
-        top_level_id
-        for node_id in node_ids
-        if (top_level_id := ontology.top_level(node_id))
-    }
+    top_level_ids: set[str] = set()
+    for node_id in node_ids:
+        top_level_ids.update(ontology.top_levels(node_id))
+    return top_level_ids
 
 
 def _node_names(node_ids: Iterable[str], ontology: AudioSetOntology) -> str:
@@ -333,8 +331,11 @@ def _node_names(node_ids: Iterable[str], ontology: AudioSetOntology) -> str:
 def _node_paths(node_ids: Iterable[str], ontology: AudioSetOntology) -> str:
     paths = []
     for node_id in sorted(node_ids, key=lambda item: ontology.node_by_id[item].name):
-        path = " > ".join(ontology.path_names_to_root(node_id))
-        paths.append(path)
+        node_paths = [
+            " > ".join(path_names)
+            for path_names in ontology.path_names_to_roots(node_id)
+        ]
+        paths.append(" / ".join(node_paths))
     return "||".join(paths)
 
 
