@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from metrics.audioset_leaf_vocab import audioset_detectable_terms
 from scripts.evaluation.vg_utils import canonicalize, load_alias_map, load_json, normalize_text
 from src.workflow_b.constants import (
     CATEGORY_MAP,
@@ -35,6 +36,7 @@ WORKFLOW_B_SCENE_EXPANSION_LABELS = {
 WORKFLOW_B_DETECTABLE_LABELS = (
     WORKFLOW_B_UNIVERSAL_LABELS
     | WORKFLOW_B_SCENE_EXPANSION_LABELS
+    | {normalize_text(term) for term in audioset_detectable_terms()}
 )
 
 

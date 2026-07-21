@@ -71,6 +71,12 @@ def main() -> None:
         help="Open-vocabulary detector backend.",
     )
     parser.add_argument(
+        "--vocab-mode",
+        choices=["legacy", "audioset", "hybrid"],
+        default="legacy",
+        help="Detection vocabulary mode.",
+    )
+    parser.add_argument(
         "--scene-architecture",
         choices=["resnet50", "densenet161"],
         default="resnet50",
@@ -150,7 +156,10 @@ def main() -> None:
 
     raw_detections = []
 
-    for batch in iter_grounding_prompt_batches(scene["label"]):
+    for batch in iter_grounding_prompt_batches(
+        scene_label=scene["label"],
+        vocab_mode=args.vocab_mode,
+    ):
         batch_detections = detector.predict(
             image_path=image_path,
             prompt=batch["prompt"],
@@ -251,6 +260,7 @@ def main() -> None:
         "extended": extended.model_dump(),
         "metadata": {
             "detector": args.detector,
+            "vocab_mode": args.vocab_mode,
             "scene_model": scene,
             "hoi_backend": args.hoi,
             "raw_hoi_count": len(raw_hois),
