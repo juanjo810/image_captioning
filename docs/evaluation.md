@@ -89,6 +89,8 @@ Los alias se cargan con `load_alias_map` desde `scripts/evaluation/vg_utils.py`.
 | `vlm_nodes` | Implementado | Lee `acoustic_semantics.nodes` generado por Workflow A. |
 | `union` | Implementado/transicional | Unión de reglas `core` y nodos VLM. Útil para ablation. |
 
+Las tres variantes se restringen al conjunto hoja compartido definido en `resources/audioset_leaf_node_names.txt` y parseado por `metrics/audioset_leaf_vocab.py`.
+
 ## Métricas AudioSet Principales
 
 Estas son las métricas recomendadas para reportar en experimentos nuevos:
