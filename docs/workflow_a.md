@@ -106,7 +106,7 @@ El prompt añade una sección top-level `acoustic_semantics`:
 }
 ```
 
-Los nodos permitidos se construyen desde `metrics/audioset_semantics.py` y se resuelven contra `ontology.json` mediante `metrics/audioset_ontology.py`.
+Los nodos permitidos se construyen desde `resources/audioset_leaf_node_names.txt` mediante `metrics/audioset_leaf_vocab.py` y se resuelven contra `ontology.json`.
 
 Limitación importante: esto no es audio recognition. Son inferencias visuales conservadoras.
 

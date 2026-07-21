@@ -66,7 +66,7 @@ Rules for acoustic_semantics:
 - Each node must include exactly: id, name, evidence, confidence, inference_type.
 - inference_type must be one of: visible_source, visible_action, scene_affordance, uncertain.
 - Every selected node must be supported by explicit visual evidence.
-- Prefer conservative parent-level nodes when the image does not justify a specific leaf.
+- Use only leaf nodes from the allowed list when the required visual evidence is explicit.
 - Do not infer speech merely from a visible person.
 - Do not infer music unless instruments, performers, dance, stage, or musical context are visible.
 - Do not infer environmental sounds unless there are clear visible cues.

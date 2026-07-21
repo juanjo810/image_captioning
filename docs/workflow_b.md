@@ -113,10 +113,11 @@ OWLv2 convierte el prompt en candidate labels. `text_threshold` se conserva por 
 
 - batches universales desde `UNIVERSAL_GROUNDING_PROMPT_BATCHES`
 - batches extra según escena desde `SCENE_EXPANSION_VOCABS`
+- batches AudioSet desde `resources/audioset_leaf_node_names.txt`, compartidos con Workflow A mediante `metrics/audioset_leaf_vocab.py`
 
 Los términos son visuales: personas, animales, vehículos, estructuras, naturaleza, objetos, herramientas y comida. GroundingDINO/OWLv2 detectan evidencia visual, no audio.
 
-TODO: añadir `--vocab-mode legacy|audioset|hybrid` y una integración AudioSet-aware. Ese argumento no existe en el CLI actual.
+`--vocab-mode audioset` usa términos detectables derivados de reglas hoja AudioSet. Los nodos marcados como `no`, los del bloque `FROM HERE` / `TO HERE`, los nodos `blacklist` de la ontología y las líneas sin evidencia estructurada se excluyen.
 
 ## Thresholds
 

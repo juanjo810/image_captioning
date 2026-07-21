@@ -73,7 +73,7 @@ Con `--include-audioset-nodes`, Workflow A pide al VLM una sección:
 }
 ```
 
-Los nodos permitidos se derivan desde `AUDIOSET_CONCEPT_TO_NODE_NAME` y se resuelven contra la ontología. El VLM debe escoger solo de esa lista.
+Los nodos permitidos se derivan desde `resources/audioset_leaf_node_names.txt` mediante `metrics/audioset_leaf_vocab.py` y se resuelven contra la ontología. El VLM debe escoger solo de esa lista.
 
 Estado: parcial. La salida todavía no está promovida a `core.nodes`.
 
