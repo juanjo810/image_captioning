@@ -4,19 +4,16 @@ import argparse
 import json
 from pathlib import Path
 
-from src.workflow_a.adapters.gemma4_adapter import Gemma4Adapter
 from src.workflow_a.adapters.llamacpp_server_adapter import LlamaCppServerAdapter
 from src.workflow_a.pipeline import WorkflowAPipeline
 
 
 SUPPORTED_MODELS = {
-    "gemma4": Gemma4Adapter,
     "llamacpp": LlamaCppServerAdapter,
 }
 
 
 DEFAULT_MODEL_IDS = {
-    "gemma4": "google/gemma-4-E4B-it",
     "llamacpp": "local-vlm",
 }
 
@@ -38,12 +35,6 @@ def main() -> None:
         "--limit",
         type=int,
         default=None,
-    )
-
-    parser.add_argument(
-        "--model",
-        choices=SUPPORTED_MODELS.keys(),
-        default="llamacpp",
     )
 
     parser.add_argument(
@@ -69,35 +60,22 @@ def main() -> None:
     )
 
     parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.0,
-    )
-
-    parser.add_argument(
         "--include-audioset-nodes",
         action="store_true",
         help=(
             "Ask the VLM to add a top-level acoustic_semantics section with "
             "visually inferred AudioSet ontology nodes."
-        ),
+        )
     )
 
     args = parser.parse_args()
 
-    adapter_cls = SUPPORTED_MODELS[args.model]
+    model_id = args.model_id or "local-vlm"
 
-    model_id = args.model_id or DEFAULT_MODEL_IDS[args.model]
-
-    if args.model == "llamacpp":
-        adapter = adapter_cls(
-            model_id=model_id,
-            base_url=args.server_url,
-        )
-    else:
-        adapter = adapter_cls(
-            model_id=model_id,
-        )
+    adapter = LlamaCppServerAdapter(
+        model_id=model_id,
+        base_url=args.server_url,
+    )
 
     pipeline = WorkflowAPipeline(adapter)
 
@@ -115,7 +93,6 @@ def main() -> None:
                     image_path=image_path,
                     output_dir=args.output_dir,
                     max_new_tokens=args.max_new_tokens,
-                    temperature=args.temperature,
                     include_audioset_nodes=args.include_audioset_nodes,
                 )
             except Exception as exc:
@@ -126,7 +103,6 @@ def main() -> None:
             image_path=args.image,
             output_dir=args.output_dir,
             max_new_tokens=args.max_new_tokens,
-            temperature=args.temperature,
             include_audioset_nodes=args.include_audioset_nodes,
         )
 

@@ -2,8 +2,8 @@
 
 set -e
 
-IMAGE_DIR="/home/jovyan/projects/data/vg_subset"
-OUT_BASE="outputs/pilot_vg/visual_json_spatialRelations"
+IMAGE_DIR="/home/jovyan/projects/data/subsets/vg_test_100/images"
+OUT_BASE="outputs/pilot_vg/visual_json"
 
 CONFIGS=(
   "grounding_dino resnet50"

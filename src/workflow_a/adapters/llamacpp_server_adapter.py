@@ -28,7 +28,6 @@ class LlamaCppServerAdapter(BaseVLM):
         image_path: str | Path,
         prompt: str,
         max_new_tokens: int = 1024,
-        temperature: float = 0.0,
     ) -> str:
         image_url = self._image_to_data_url(Path(image_path))
 
@@ -43,7 +42,6 @@ class LlamaCppServerAdapter(BaseVLM):
                     ],
                 }
             ],
-            "temperature": temperature,
             "max_tokens": max_new_tokens,
         }
 

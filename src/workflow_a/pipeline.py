@@ -23,7 +23,6 @@ class WorkflowAPipeline:
         output_dir: str | Path,
         *,
         max_new_tokens: int = 512,
-        temperature: float = 0.0,
         include_audioset_nodes: bool = False,
     ) -> dict[str, Any]:
         image_path = Path(image_path)
@@ -58,7 +57,6 @@ class WorkflowAPipeline:
             image_path=image_path,
             prompt=prompt,
             max_new_tokens=max_new_tokens,
-            temperature=temperature,
         )
 
         raw_path = raw_dir / f"{image_path.stem}.txt"
@@ -107,7 +105,6 @@ class WorkflowAPipeline:
             "image_id": image_path.stem,
             "include_audioset_nodes": include_audioset_nodes,
             "generation_params": {
-                "temperature": temperature,
                 "max_new_tokens": max_new_tokens,
             },
         }
