@@ -12,7 +12,7 @@ Workflow B construye una representación estructurada desde módulos visuales: P
 | Filtros y fusión `core`/`extended` | Implementado |
 | HOI `dummy` | Implementado para smoke tests |
 | HOI `upt` | Parcial, depende de repo/checkpoints externos |
-| `--vocab-mode legacy|audioset|hybrid` | Planeado/TODO, no implementado |
+| `--vocab-mode legacy|audioset|hybrid` | Implementado |
 | Salida AudioSet canónica | Planeada/TODO |
 
 ## CLI Real
@@ -29,6 +29,7 @@ Argumentos implementados:
 | --- | --- | --- |
 | `--image` | `/home/jovyan/projects/data/test.jpg` | Imagen de entrada. |
 | `--detector` | `grounding_dino` | `grounding_dino` u `owlv2`. |
+| `--vocab-mode` | `legacy` | `legacy`, `audioset` o `hybrid`. |
 | `--scene-architecture` | `resnet50` | `resnet50` o `densenet161`. |
 | `--box-threshold` | `0.30` | Umbral de caja pasado al detector. |
 | `--text-threshold` | `0.25` | Umbral textual para GroundingDINO. |
@@ -45,7 +46,7 @@ Nota: aunque `--box-threshold` y `--text-threshold` existen en el CLI, los batch
 ```text
 image
   -> Places365Adapter.predict(topk=5)
-  -> iter_grounding_prompt_batches(scene["label"])
+  -> iter_grounding_prompt_batches(scene["label"], vocab_mode)
   -> GroundingDINOAdapter u OWLv2Adapter
   -> filter_detections(min_confidence, NMS, semantic filters)
   -> build_from_modules(core, extended)
