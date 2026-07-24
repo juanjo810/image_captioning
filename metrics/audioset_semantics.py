@@ -11,6 +11,7 @@ the corresponding sound is audible in the image.
 from collections import Counter
 from typing import Any, Iterable, Literal
 
+from metrics.audioset_leaf_vocab import audioset_leaf_rules
 from metrics.audioset_ontology import AudioSetOntology, load_audioset_ontology
 from scripts.evaluation.evaluate_structured_vg import prf
 from scripts.evaluation.vg_utils import canonicalize, normalize_text
@@ -372,50 +373,74 @@ def _prediction_entity_by_id(
     }
 
 
+def _add_evidence_label(
+    evidence: set[str],
+    label: str,
+    alias: dict[str, str] | None = None,
+) -> None:
+    normalized = normalize_text(label)
+    if normalized:
+        evidence.add(normalized)
+
+    if alias is not None:
+        canonical = canonicalize(label, alias)
+        if canonical:
+            evidence.add(normalize_text(canonical))
+
+
+def _leaf_rule_counts_from_evidence(evidence: set[str]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+
+    for rule in audioset_leaf_rules():
+        if all(any(term in evidence for term in alternatives) for alternatives in rule.all_of):
+            counts[rule.id] = 1
+
+    return dict(counts)
+
+
+def prediction_audioset_evidence(
+    pred_json: dict[str, Any],
+    object_alias: dict[str, str],
+    relationship_alias: dict[str, str],
+) -> set[str]:
+    """Collect normalized visual evidence labels from predicted CORE JSON."""
+
+    evidence: set[str] = set()
+    core = pred_json.get("core", {})
+
+    scene_label = core.get("scene", {}).get("label", "")
+    _add_evidence_label(evidence, scene_label)
+
+    indoor_outdoor = core.get("scene", {}).get("indoor_outdoor", "")
+    _add_evidence_label(evidence, indoor_outdoor)
+
+    for entity in core.get("entities", []):
+        _add_evidence_label(evidence, entity.get("label", ""), object_alias)
+
+    for interaction in core.get("observed_interactions", []):
+        _add_evidence_label(
+            evidence,
+            interaction.get("verb", ""),
+            relationship_alias,
+        )
+
+    return evidence
+
+
 def prediction_audioset_tag_counts(
     pred_json: dict[str, Any],
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
     ontology: AudioSetOntology | None = None,
 ) -> dict[str, int]:
-    """Infer AudioSet ontology node counts from predicted CORE JSON."""
+    """Infer AudioSet leaf-node counts from predicted CORE JSON."""
 
-    ontology = ontology or load_audioset_ontology()
-    counts: Counter[str] = Counter()
-    core = pred_json.get("core", {})
-
-    scene_label = core.get("scene", {}).get("label", "")
-    _add_tags(counts, tags_for_scene(scene_label), ontology=ontology)
-
-    for entity in core.get("entities", []):
-        label = canonicalize(entity.get("label", ""), object_alias)
-        if not label:
-            continue
-
-        try:
-            count_estimate = int(entity.get("count_estimate", 1))
-        except (TypeError, ValueError):
-            count_estimate = 1
-
-        _add_tags(
-            counts,
-            tags_for_label(label),
-            amount=count_estimate,
-            ontology=ontology,
-        )
-
-    entity_by_id = _prediction_entity_by_id(pred_json, object_alias)
-
-    for interaction in core.get("observed_interactions", []):
-        verb = canonicalize(interaction.get("verb", ""), relationship_alias)
-        _add_tags(counts, tags_for_predicate(verb), ontology=ontology)
-
-        for endpoint_key in ("subject_id", "object_id"):
-            endpoint_label = entity_by_id.get(interaction.get(endpoint_key))
-            if endpoint_label:
-                _add_tags(counts, tags_for_label(endpoint_label), ontology=ontology)
-
-    return dict(counts)
+    evidence = prediction_audioset_evidence(
+        pred_json=pred_json,
+        object_alias=object_alias,
+        relationship_alias=relationship_alias,
+    )
+    return _leaf_rule_counts_from_evidence(evidence)
 
 
 def vlm_audioset_tag_counts(
@@ -429,6 +454,7 @@ def vlm_audioset_tag_counts(
     """
 
     ontology = ontology or load_audioset_ontology()
+    allowed_ids = {rule.id for rule in audioset_leaf_rules()}
     raw_nodes = pred_json.get("acoustic_semantics", {}).get("nodes", [])
     if not isinstance(raw_nodes, list):
         return {}
@@ -440,7 +466,7 @@ def vlm_audioset_tag_counts(
             continue
 
         node_id = str(raw_node.get("id") or "").strip()
-        if ontology.is_usable_label(node_id):
+        if node_id in allowed_ids and ontology.is_usable_label(node_id):
             node_ids.add(node_id)
 
     return {node_id: 1 for node_id in sorted(node_ids)}
@@ -491,29 +517,18 @@ def reference_audioset_tag_counts(
     relationship_alias: dict[str, str],
     ontology: AudioSetOntology | None = None,
 ) -> dict[str, int]:
-    """Infer AudioSet ontology node counts from Visual Genome pseudo-refs."""
+    """Infer AudioSet leaf-node counts from Visual Genome pseudo-refs."""
 
-    ontology = ontology or load_audioset_ontology()
-    counts: Counter[str] = Counter()
-
+    evidence: set[str] = set()
     for label in gt_objects:
-        canonical = canonicalize(label, object_alias)
-        _add_tags(counts, tags_for_label(canonical), ontology=ontology)
+        _add_evidence_label(evidence, label, object_alias)
 
     for subject, predicate, object_ in gt_relationships:
-        canonical_subject = canonicalize(subject, object_alias)
-        canonical_object = canonicalize(object_, object_alias)
-        canonical_predicate = canonicalize(predicate, relationship_alias)
+        _add_evidence_label(evidence, subject, object_alias)
+        _add_evidence_label(evidence, object_, object_alias)
+        _add_evidence_label(evidence, predicate, relationship_alias)
 
-        _add_tags(
-            counts,
-            tags_for_predicate(canonical_predicate),
-            ontology=ontology,
-        )
-        _add_tags(counts, tags_for_label(canonical_subject), ontology=ontology)
-        _add_tags(counts, tags_for_label(canonical_object), ontology=ontology)
-
-    return dict(counts)
+    return _leaf_rule_counts_from_evidence(evidence)
 
 
 def compute_audioset_metrics(

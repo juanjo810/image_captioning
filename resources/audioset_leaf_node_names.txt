@@ -1,0 +1,483 @@
+Male speech, man speaking|man
+Female speech, woman speaking|woman
+Child speech, kid speaking|child
+Conversation|no
+Narration, monologue|no
+Babbling|no
+Speech synthesizer|no
+Bellow|no
+Whoop|no
+Yell|no
+Battle cry|no
+Children shouting|child
+Screaming|no
+Whispering|no
+Baby laughter|baby
+Giggle|smile
+Snicker|smile
+Belly laugh|smile
+Chuckle, chortle|smile
+Baby cry, infant cry|no
+Whimper|no
+Wail, moan|no
+Sigh|no
+Choir|choir
+Yodeling|no
+Mantra|no
+Male singing|man and microphone
+Female singing|woman and microphone
+Child singing|child and microphone
+Synthetic singing|no
+Rapping|no
+Humming|no
+Groan|no
+Grunt|no
+Yawn|no
+Wolf-whistling|no
+Wheeze|no
+Snoring|man and sleep
+Gasp|no
+Pant
+Snort
+Throat clearing|man and bathroom and sink
+Sneeze|sneeze
+Sniff|no
+Run|person and run
+Shuffle|no
+Walk, footsteps|man and pedestrian and street
+Chewing, mastication|man and food or eat
+Biting|no
+Gargling|no
+Stomach rumble|no
+Burping, eructation|no
+Hiccup|no
+Fart|no
+Finger snapping|no
+Clapping|person and concert
+Heart murmur|no
+Tinnitus, ringing in the ears|no
+Cheering|person and stadium
+Applause|no
+Crowd|crowd
+Hubbub, speech noise, speech babble|no
+Booing|no
+Children playing|no
+Bark|dog
+Yip|dog
+Howl|dog
+Bow-wow|dog
+Growling|dog or cat or lion or tiger
+Whimper (dog)|dog
+Bay|dog
+Purr|cat
+Meow|cat
+Hiss|cat or snake
+Cat communication|cat
+Caterwaul|cat
+Clip-clop|horse
+Neigh, whinny|horse
+Snort (horse)|horse
+Nicker|horse
+Donkey, ass|donkey
+Moo|cow or bull or sheep (bovinae)
+Cowbell|cow or bull or sheep (bovinae)
+Yak|cow or bull or sheep (bovinae)
+Oink|pig
+Bleat|goat or sheep
+Cluck|chicken or rooster
+Crowing, cock-a-doodle-doo|chicken or rooster
+Gobble|turkey
+Quack|duck
+Honk|goose
+Roar|lion or tiger
+Chirp, tweet|bird
+Squawk|bird
+Coo|pigeon or dove
+Caw|crow
+Hoot|owl
+Gull, seagull|gull or seagull
+Bird flight, flapping wings|bird
+Mouse|mouse
+Chipmunk|mouse
+Patter|mouse
+Cricket|cricket
+Mosquito|mosquito
+Buzz|bee or wasp or fly
+Croak|forg
+Rattle|snake
+Whale vocalization|whale
+Electric guitar|electric_guitar
+Bass guitar|bass
+Acoustic guitar|guitar
+Steel guitar, slide guitar|electric_guitar
+Tapping (guitar technique)|guitar
+Strum|no
+Banjo|banjo
+Sitar|sitar
+Mandolin|mandolin
+Zither|zither
+Ukulele|ukulele
+Clavinet|no
+Rhodes piano|no
+Piano|piano
+Organ|organ
+Electronic organ|no
+Hammond organ|no
+Sampler|sampler
+Mellotron|mellotron
+Harpsichord|harpsichord
+Drum|drum
+Drum machine|no
+Rimshot|no
+Drum roll|no
+Bass drum|no
+Timpani|no
+Tabla|no
+Cymbal|cymbal
+Hi-hat|no
+Crash cymbal|no
+Wood block|wood_block
+Cowbell|cowbell
+Tambourine|tambourine
+Maraca|maraca
+Gong|gong
+Tubular bells|tubular_bell
+Marimba, xylophone|marimba or xylophone
+Glockenspiel|glockenspiel
+Vibraphone|vibraphone
+Steelpan|steelpan
+Orchestra|orchestra
+French horn|french_horn
+Trumpet|trumpet
+Trombone|trombone
+Cornet|cornet
+Bugle|bugle
+String section|no
+Pizzicato|no
+Violin, fiddle|violin or viola
+Cello|cello
+Double bass|double_bass
+Flute|flute
+Saxophone|saxophone
+Alto saxophone|no
+Soprano saxophone|no
+Clarinet|clarinet
+Oboe|oboe
+Bassoon|bassoon
+Harp|harp
+Church bell|church and bell
+Jingle bell|bell
+Bicycle bell|bicycle
+Tuning fork|no
+Wind chime|no
+Change ringing (campanology)|campanary
+Harmonica|harmonica
+Accordion|accordion
+Bagpipes|bagpipes
+Didgeridoo|didgeridoo
+Shofar|shofar
+Theremin|theremin
+Singing bowl|no
+Musical ensemble|no
+Bass (instrument role)|no
+Scratching (performance technique)|no
+=======================FROM HERE==============
+Pop music
+Grime music
+Trap music
+Beatboxing
+Heavy metal
+Punk rock
+Grunge
+Progressive rock
+Rock and roll
+Psychedelic rock
+Rhythm and blues
+Soul music
+Dub
+Swing music
+Bluegrass
+Funk
+Folk music
+Middle Eastern music
+Jazz
+Disco
+Opera
+House music
+Techno
+Dubstep
+Electro
+Oldschool jungle
+Electronica
+Electronic dance music
+Drone music
+Trance music
+Noise music
+UK garage
+Cumbia
+Salsa music
+Soca music
+Kuduro
+Funk carioca
+Flamenco
+Blues
+Music for children
+New-age music
+A capella
+Afrobeat
+Kwaito
+Gospel music
+Carnatic music
+Music of Bollywood
+Ska
+Traditional music
+Independent music
+Song
+Melody
+Musical note
+Drum beat
+Chord
+Harmony
+Bassline
+Loop
+Drone
+Background music
+Theme music
+Jingle (music)
+Soundtrack music
+================TO HERE===================
+Lullaby|baby and bed
+Video game music|video_console
+Christmas music|christmas
+Dance music|dance
+Wedding music|wedding
+Birthday music|birthday
+Happy music|no
+Funny music|no
+Sad music|no
+Tender music|no
+Exciting music|no
+Angry music|no
+Scary music|no
+Howl (wind)|no
+Rustling leaves|tree
+Wind noise (microphone)|no
+Thunder|thunder
+Raindrop|rain
+Rain on surface|rain
+Stream|river
+Waterfall|waterfall
+Waves, surf|sea or waves
+Gurgling|bottle
+Crackle|fire
+Wildfire|fire
+Sailboat, sailing ship|boat
+Rowboat, canoe, kayak|kayak or canoe
+Motorboat, speedboat|motorboat
+Ship|ship
+Toot|no
+Car alarm|car
+Power windows, electric windows|car
+Skidding|car
+Tire squeal|car
+Car passing by|car and road
+Race car, auto racing|auto_racing
+Air brake|truck
+Air horn, truck horn|truck
+Reversing beeps|truck
+Ice cream truck, ice cream van|ice_cream_truck
+Bus|bus
+Police car (siren)|police_car
+Ambulance (siren)|ambulance
+Fire engine, fire truck (siren)|fire_truck
+Motorcycle|motorcycle
+Traffic noise, roadway noise|car or truck or motorcycle or bus
+Train whistle|train
+Train horn|train
+Railroad car, train wagon|train
+Train wheels squealing|train
+Subway, metro, underground|subway
+Jet engine|jet
+Propeller, airscrew|helicopter
+Helicopter|helicopter
+Fixed-wing aircraft, airplane|airplane
+Skateboard|skateboard
+Dental drill, dentist's drill|dental_drill
+Lawn mower|lawn_mower
+Chainsaw|chainsaw
+Medium engine (mid frequency)|motorcycle
+Heavy engine (low frequency)|truck or ship
+Engine knocking|no
+Engine starting|car
+Idling|car
+Accelerating, revving, vroom|car or truck or motorcycle
+Ding-dong|doorbell
+Sliding door|no
+Slam|no
+Knock|no
+Tap|no
+Squeak|no
+Cupboard open or close|cupboard
+Drawer open or close|drawer
+Dishes, pots, and pans|dish or pot or pan
+Cutlery, silverware|cutlery
+Chopping (food)|chop
+Frying (food)|fry
+Microwave oven|microwave
+Blender|blender
+Kettle whistle|kettle
+Water tap, faucet|sink
+Sink (filling or washing)|sink
+Bathtub (filling or washing)|bathtub
+Hair dryer|hair_dryer
+Toilet flush|toilet_fulsh
+Electric toothbrush|electric_toothbrush
+Vacuum cleaner|vacuum_cleaner
+Zipper (clothing)|zipper
+Velcro, hook and loop fastener|velcro
+Keys jangling|keys
+Coin (dropping)|coins
+Packing tape, duct tape|tape
+Scissors|scissors
+Electric shaver, electric razor|shaver
+Shuffling cards|cards
+Typewriter|typewriter
+Computer keyboard|keyboard
+Writing|paper and pen or pencil
+Telephone bell ringing|telephone
+Ringtone|telephone
+Cellphone buzz, vibrating alert|telephone
+Telephone dialing, DTMF|telephone
+Dial tone|telephone
+Busy signal|telephone
+Alarm clock|clock
+Civil defense siren|megaphone or speaker
+Buzzer|no
+Smoke detector, smoke alarm|smoke_detector
+Fire alarm|fire_alarm
+Foghorn|telephone
+Steam whistle|telephone
+Ratchet, pawl|bicycle
+Tick|clock
+Tick-tock|clock
+Gears|no
+Pulleys|no
+Sewing machine|sewing_machine
+Mechanical fan|fan
+Air conditioning|air_conditioning
+Cash register|cash_register
+Printer|printer
+Single-lens reflex camera|camera
+Hammer|hammer
+Jackhammer|jackhammer
+Sawing|saw
+Filing (rasp)|rasp
+Sanding|no
+Drill|drill
+Machine gun|gun
+Fusillade|fusile
+Artillery fire|tank
+Cap gun|cap_gun
+Firecracker|fireworks
+Burst, pop|no
+Eruption|volcan
+Sonic boom|bomb
+Chop|no
+Splinter|no
+Crack|no
+Snap|no
+Chink, clink|no
+Shatter|no
+Slosh|swimming_pool
+Squish|no
+Drip|no
+Trickle, dribble|no
+Gush|no
+Fill (with liquid)|no
+Spray|no
+Pump (liquid)|no
+Stir|no
+Boiling|no
+Sonar|no
+Duck call (hunting tool)|no
+Whoosh, swoosh, swish|arrow
+Thunk|arrow
+Clunk|arrow
+Wobble|arrow
+Electronic tuner|electronic_tuner
+Guitar amplifier|amplifier
+Chorus effect|no
+Basketball bounce|basketball_ball
+Bang|no
+Slap, smack|no
+Whack, thwack|no
+Smash, crash|no
+Breaking|no
+Bouncing|ball
+Whip|no
+Flap|no
+Scratch|no
+Scrape|no
+Rub|no
+Roll|no
+Grind|no
+Crushing|no
+Crumpling, crinkling|no
+Tearing|no
+Beep, bleep|computer
+Ping|no
+Ding|no
+Clang|no
+Twang|no
+Squeal|no
+Screech|no
+Creak|no|no
+Rustle
+Whir|no
+Clatter|no
+Sizzle|no
+Clickety-clack|typewriter
+Rumble|no
+Blare|no
+Plop|no
+Jingle, tinkle|no
+Fizz|no
+Puff|no
+Hum|no
+Zing|no
+Boing|no
+Crunch|no
+Silence|no
+Harmonic|no
+Chirp tone|no
+Sound effect|no
+Pulse|no
+Infrasound|no
+Bass (frequency range)|no
+Ringing (of resonator)|no
+Inside, small room|living_room or bedroom or room (less than 15 people)
+Inside, large room or hall|hall
+Inside, public space|public_space(indoor)
+Outside, urban or manmade|street or avenue... (outside urban)
+Outside, rural or natural|camp or field... (outside rural)
+Reverberation|no
+Echo|no
+Environmental noise|no
+Tape hiss|no
+Static|no
+Mains hum|no
+Distortion|no
+Sidetone|no
+Cacophony|no
+White noise|no
+Pink noise|no
+Throbbing|no
+Vibration|no
+Television|television
+Radio|radio
+Loudspeaker|loudspeaker
+Headphones|headphones
+Field recording|no
+Gramophone record|gramophone
+Compact disc|CD
+MP3|MP·
