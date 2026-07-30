@@ -221,4 +221,5 @@ __marimo__/
 *.jpg
 *.ipynb
 outputs
+data
 .workflow_a_audioset
