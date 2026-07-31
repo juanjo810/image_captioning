@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from src.schemas import AcousticSemantics, CoreJSON
+from src.schemas import AcousticSemantics, CoreJSON, AudioSetCoreJSON
 from src.workflow_b.constants import CATEGORY_MAP
 
 ENTITY_CATEGORIES = {
@@ -65,7 +65,7 @@ def unwrap_vlm_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return deepcopy(payload)
 
 
-def normalize_core_payload(payload: dict[str, Any], image_id: str | None = None) -> dict[str, Any]:
+def normalize_legacy_core_payload(payload: dict[str, Any], image_id: str | None = None) -> dict[str, Any]:
     core = unwrap_vlm_payload(payload)
 
     if image_id is not None:
@@ -165,15 +165,15 @@ def normalize_core_payload(payload: dict[str, Any], image_id: str | None = None)
     return core
 
 
-def validate_workflow_a_output(payload: dict[str, Any], image_id: str | None = None) -> CoreJSON:
-    normalized = normalize_core_payload(payload=payload, image_id=image_id)
+def validate_legacy_workflow_a_output(payload: dict[str, Any], image_id: str | None = None) -> CoreJSON:
+    normalized = normalize_legacy_core_payload(payload=payload, image_id=image_id)
     try:
         return CoreJSON.model_validate(normalized)
     except ValidationError as exc:
         raise ValueError(f"Workflow A output is not compatible with CoreJSON: {exc}") from exc
 
 
-def normalize_acoustic_semantics_payload(
+def normalize_legacy_acoustic_semantics_payload(
     payload: dict[str, Any],
     allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
 ) -> dict[str, Any]:
@@ -230,11 +230,11 @@ def normalize_acoustic_semantics_payload(
     return {"nodes": normalized_nodes}
 
 
-def validate_acoustic_semantics_output(
+def validate_legacy_acoustic_semantics_output(
     payload: dict[str, Any],
     allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
 ) -> AcousticSemantics:
-    normalized = normalize_acoustic_semantics_payload(
+    normalized = normalize_legacy_acoustic_semantics_payload(
         payload=payload,
         allowed_audioset_nodes=allowed_audioset_nodes,
     )
@@ -244,3 +244,115 @@ def validate_acoustic_semantics_output(
         raise ValueError(
             f"Workflow A acoustic_semantics output is not compatible with schema: {exc}"
         ) from exc
+    
+
+def normalize_audioset_core_payload(
+        payload: dict[str, Any], 
+        allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
+        image_id: str | None = None,
+) -> dict[str, Any]:
+    core = unwrap_vlm_payload(payload)
+
+    if image_id is not None:
+        core["image_id"] = image_id
+    else:
+        core["image_id"] = str(core.get("image_id") or "unknown")
+
+
+    raw_scene = core.get("scene") if isinstance(core.get("scene"), dict) else {}
+    if not raw_scene:
+        raise ValueError("Malformed JSON: 'scene' section was not found or is not a valid object.")
+
+    by_id = {node["id"]: node["name"] for node in allowed_audioset_nodes}
+    by_name = {normalize_label(node["name"], default=""): node["id"] for node in allowed_audioset_nodes}
+
+    if not isinstance(raw_scene, dict):
+        return {"scene": {}}
+
+    audioset_id = str(raw_scene.get("audioset_id") or "").strip()
+    audioset_name = normalize_label(raw_scene.get("audioset_name"), default="")
+
+    if audioset_id not in by_id and audioset_name in by_name:
+        audioset_id = by_name[audioset_name]
+
+    if audioset_id not in by_id:
+        raise ValueError("Audioset id not in allowed audioset nodes")
+
+    audioset_evidence = str(raw_scene.get("evidence") or "").strip()
+    if not audioset_evidence:
+        raise ValueError("Audioset scene has no evidence")
+
+    audioset_confidence = normalize_confidence(raw_scene.get("confidence"), default=0.5)
+
+    normalized_scene = {
+        "audioset_id": audioset_id,
+        "audioset_name": by_id[audioset_id],
+        "confidence": audioset_confidence,
+        "evidence": audioset_evidence
+    }
+    core["scene"] = normalized_scene
+
+
+    raw_nodes = core.get("nodes", [])
+    if not isinstance(raw_nodes, list):
+        raw_nodes = []
+
+    normalized_nodes = []
+    seen_ids = set()
+
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            continue
+
+        new_id = f"n{len(normalized_nodes) + 1}"
+
+        audioset_id = str(raw_node.get("audioset_id") or "").strip()
+        node_name = normalize_label(raw_node.get("audioset_name"), default="")
+
+        if audioset_id not in by_id and node_name in by_name:
+            audioset_id = by_name[node_name]
+
+        if audioset_id not in by_id or audioset_id in seen_ids:
+            continue
+
+        evidence = str(raw_node.get("evidence") or "").strip()
+        if not evidence:
+            continue
+
+        node_type = str(raw_node.get("node_type") or "uncertain").strip().lower()
+        if node_type not in ACOUSTIC_INFERENCE_TYPES:
+            node_type = "uncertain"
+
+        normalized_nodes.append({
+            "node_id": new_id,
+            "audioset_id": audioset_id,
+            "audioset_name": by_id[audioset_id],
+            "node_type": node_type,
+            "evidence": evidence,
+            "confidence": normalize_confidence(raw_node.get("confidence"), default=0.5),
+        })
+        seen_ids.add(audioset_id)
+
+    core["nodes"] = normalized_nodes
+
+    caption = str(core.get("caption") or "A visual scene.").strip()
+    core["caption"] = caption if caption.endswith(".") else caption + "."
+    
+    return core
+
+
+def validate_audioset_workflow_a_output(
+    payload: dict[str, Any],
+    allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
+    image_id: str | None = None,
+) -> CoreJSON:
+    normalized = normalize_audioset_core_payload(
+        payload=payload,
+        allowed_audioset_nodes=allowed_audioset_nodes,
+        image_id=image_id,
+    )
+    try:
+        return AudioSetCoreJSON.model_validate(normalized)
+    except ValidationError as exc:
+        raise ValueError(f"Workflow A output is not compatible with CoreJSON: {exc}") from exc
+

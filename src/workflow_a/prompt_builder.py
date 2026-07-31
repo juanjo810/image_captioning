@@ -3,7 +3,7 @@ from __future__ import annotations
 from src.workflow_a.audioset_nodes import format_allowed_audioset_nodes_for_prompt
 
 
-def build_workflow_a_prompt(
+def build_workflow_a_legacy_visual_prompt(
     *,
     include_audioset_nodes: bool = False,
     allowed_audioset_nodes: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
@@ -85,4 +85,73 @@ Add this sibling section after "core":
     }}
   ]
 }}
+""".strip()
+
+
+def build_workflow_a_audioset_core_prompt(
+    *,
+    allowed_audioset_nodes: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+) -> str:
+    base_prompt = """
+Return ONLY one valid JSON object. No markdown. No explanations.
+The JSON must start with { and end with }.
+
+Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
+This section is NOT actual audio recognition. It contains acoustically plausible AudioSet ontology nodes inferred only from explicit visual evidence in the image.
+
+Allowed node_type values: visible_source, visible_action, scene_affordance, uncertain.
+- visible_source: the sound-producing object/animal/instrument itself is visibly present (e.g. a dog, a guitar, a car engine).
+- visible_action: a visible action implies a sound (e.g. walking, clapping, a door closing).
+- scene_affordance: the scene type plausibly implies ambient sound even without a specific visible source (e.g. an urban street implies traffic ambience).
+- uncertain: visual evidence suggests a possible sound but is not conclusive.
+
+Rules:
+- Every node must be supported by explicit visual evidence described in "evidence".
+- Do not infer speech merely from a visible person.
+- Do not infer music unless instruments, performers, dance, a stage, or other explicit musical context are visible.
+- Do not infer environmental or mechanical sounds unless there are clear visible cues for them.
+- Each node's audioset_id and audioset_name must come from the SAME entry in the allowed list below — never mix an id from one entry with the name of another.
+- Do not invent audioset_id or audioset_name values that are not in the allowed list.
+- node_id values must be unique and sequential: n1, n2, n3, and so on.
+- If no AudioSet node is visually justified, return an empty "nodes" array.
+- The scene's audioset_id/audioset_name must also come from the allowed list and match the SAME entry, chosen as the closest description of the overall scene.
+- Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
+""".strip()
+
+    json_schema_prompt = """
+Return exactly this schema:
+{
+  "core": {
+    "image_id": "unknown",
+    "scene": {
+      "audioset_id": "/m/0k4j",
+      "audioset_name": "Outside, urban or manmade",
+      "confidence": 0.82,
+      "evidence": "urban street visible with buildings and traffic"
+    },
+    "nodes": [
+      {
+        "node_id": "n1",
+        "audioset_id": "/m/07qv_x0",
+        "audioset_name": "Walk, footsteps",
+        "node_type": "visible_action",
+        "evidence": "people walking on the pavement",
+        "confidence": 0.80
+      }
+    ],
+    "caption": "a busy urban street with pedestrians and vehicles"
+  }
+}
+
+If there is no visually justified node, use: "nodes": []
+""".strip()
+
+    allowed_nodes = format_allowed_audioset_nodes_for_prompt(allowed_audioset_nodes)
+    return f"""
+{base_prompt}
+
+Use ONLY AudioSet nodes from this allowed list:
+{allowed_nodes}
+
+{json_schema_prompt}
 """.strip()

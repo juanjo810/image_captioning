@@ -64,8 +64,15 @@ def main() -> None:
         action="store_true",
         help=(
             "Ask the VLM to add a top-level acoustic_semantics section with "
-            "visually inferred AudioSet ontology nodes."
+            "visually inferred AudioSet ontology nodes." 
+            "Only works if --legacy-visual-core is passed!"
         )
+    )
+
+    parser.add_argument(
+        "--legacy-visual-core",
+        action="store_true",
+        help="Uses the legacy visual core instead of the current audioset core."
     )
 
     args = parser.parse_args()
@@ -94,6 +101,7 @@ def main() -> None:
                     output_dir=args.output_dir,
                     max_new_tokens=args.max_new_tokens,
                     include_audioset_nodes=args.include_audioset_nodes,
+                    use_legacy_core=args.legacy_visual_core,
                 )
             except Exception as exc:
                 print(f"FAILED: {image_path.name} -> {exc}")
@@ -104,6 +112,7 @@ def main() -> None:
             output_dir=args.output_dir,
             max_new_tokens=args.max_new_tokens,
             include_audioset_nodes=args.include_audioset_nodes,
+            use_legacy_core=args.legacy_visual_core,
         )
 
 
