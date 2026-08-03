@@ -5,6 +5,9 @@ import csv
 import json
 from pathlib import Path
 
+from metrics.audioset_ontology import AudioSetOntology, load_audioset_ontology
+from scripts.evaluation.vg_utils import is_audioset_core_json
+
 
 def safe_load_json(path: Path) -> tuple[bool, dict | None, str]:
     try:
@@ -14,16 +17,49 @@ def safe_load_json(path: Path) -> tuple[bool, dict | None, str]:
         return False, None, str(exc)
 
 
-def compute_json_metrics(json_path: Path) -> dict:
-    valid, data, error = safe_load_json(json_path)
+def compute_audioset_json_metrics(
+    json_path: Path,
+    data: dict,
+    ontology: AudioSetOntology,
+) -> dict:
+    core = data.get("core", {})
+    extended = data.get("extended", {})
 
-    if not valid or data is None:
-        return {
-            "json_path": str(json_path),
-            "json_valid": False,
-            "json_error": error,
-        }
+    nodes = core.get("nodes", [])
+    grounding = extended.get("grounding", [])
 
+    node_ids = {n.get("node_id") for n in nodes if n.get("node_id")}
+    grounding_node_ids = {g.get("node_id") for g in grounding if g.get("node_id")}
+
+    valid_audioset_id_count = 0
+
+    for node in nodes:
+        audioset_id = str(node.get("audioset_id") or "").strip()
+        if audioset_id and audioset_id in ontology.node_by_id:
+            valid_audioset_id_count += 1
+
+    n_nodes = len(nodes)
+
+    return {
+        "json_path": str(json_path),
+        "image_id": core.get("image_id", json_path.stem),
+        "json_valid": True,
+        "json_error": "",
+        "n_nodes": n_nodes,
+        "n_grounding": len(grounding),
+        "grounding_node_id_consistency": (
+            grounding_node_ids.issubset(node_ids) if grounding_node_ids else True
+        ),
+        "audioset_id_valid_ratio": (
+            valid_audioset_id_count / n_nodes if n_nodes > 0 else 1.0
+        ),
+        "has_caption": bool(core.get("caption")),
+        "scene_audioset_id": core.get("scene", {}).get("audioset_id", ""),
+        "scene_confidence": core.get("scene", {}).get("confidence", ""),
+    }
+
+
+def compute_legacy_json_metrics(json_path: Path, data: dict) -> dict:
     core = data.get("core", {})
     extended = data.get("extended", {})
 
@@ -66,6 +102,22 @@ def compute_json_metrics(json_path: Path) -> dict:
     }
 
 
+def compute_json_metrics(json_path: Path, ontology: AudioSetOntology) -> dict:
+    valid, data, error = safe_load_json(json_path)
+
+    if not valid or data is None:
+        return {
+            "json_path": str(json_path),
+            "json_valid": False,
+            "json_error": error,
+        }
+
+    if is_audioset_core_json(data):
+        return compute_audioset_json_metrics(json_path, data, ontology)
+
+    return compute_legacy_json_metrics(json_path, data)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
 
@@ -84,9 +136,10 @@ def main() -> None:
     args = parser.parse_args()
 
     input_path = Path(args.input)
+    ontology = load_audioset_ontology()
 
     rows = [
-        compute_json_metrics(path)
+        compute_json_metrics(path, ontology)
         for path in sorted(input_path.rglob("*.json"))
     ]
 

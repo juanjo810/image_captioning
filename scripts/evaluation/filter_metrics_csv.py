@@ -32,7 +32,7 @@ CORE_METRIC_FIELDS = {
         "pred_entity_scene_consistency",
         "n",
     ],
-    "soundscape": [
+    "legacy_soundscape": [
         "detector",
         "scene_model",
         "captioner",
@@ -46,12 +46,11 @@ CORE_METRIC_FIELDS = {
         "detector",
         "scene_model",
         "captioner",
-        "audioset_tag_precision",
-        "audioset_tag_recall",
-        "audioset_tag_f1",
-        "audioset_category_precision",
-        "audioset_category_recall",
-        "audioset_category_f1",
+        "audioset_exact_node_f1",
+        "audioset_parent_f1",
+        "audioset_top_level_f1",
+        "audioset_lca_similarity",
+        "audioset_tree_distance_similarity",
         "n",
     ],
 }

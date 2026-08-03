@@ -60,6 +60,14 @@ def load_json(path: str | Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def is_audioset_core_json(pred_json: dict[str, Any]) -> bool:
+    """Detect the AudioSet-only core format (core.nodes) vs the legacy visual
+    core format (core.entities), by content rather than by a CLI flag, so
+    scripts that scan mixed prediction directories can branch per-file."""
+
+    return "nodes" in pred_json.get("core", {})
+
+
 def get_prediction_entities(
     pred_json: dict[str, Any],
     object_alias: dict[str, str] | None = None,

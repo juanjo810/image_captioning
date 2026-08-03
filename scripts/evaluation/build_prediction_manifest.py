@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 from pathlib import Path
+from scripts.evaluation.vg_utils import is_audioset_core_json
 
 
 def parse_condition(path: Path) -> tuple[str, str, str]:
@@ -27,37 +28,59 @@ def parse_condition(path: Path) -> tuple[str, str, str]:
 def summarize_json(json_path: Path) -> dict:
     data = json.loads(json_path.read_text(encoding="utf-8"))
 
-    core = data.get("core", {})
-    extended = data.get("extended", {})
-    metadata = data.get("metadata", {})
-
     detector, scene_model, captioner = parse_condition(json_path)
-
-    entities = core.get("entities", [])
-    interactions = core.get("observed_interactions", [])
-    scene = core.get("scene", {})
+    metadata = data.get("metadata", {})
+    extended = data.get("extended", {})
     global_geometry = extended.get("global_geometry", {})
 
-    return {
-        "image_id": core.get("image_id", json_path.stem),
-        "json_path": str(json_path),
-        "detector": detector,
-        "scene_model": scene_model,
-        "captioner": captioner,
-        "caption": core.get("caption", ""),
-        "scene_label": scene.get("label", ""),
-        "scene_confidence": scene.get("confidence", ""),
-        "indoor_outdoor": scene.get("indoor_outdoor", ""),
-        "n_entities": len(entities),
-        "n_interactions": len(interactions),
-        "crowd_level": core.get("environment", {}).get("crowd_level", ""),
-        "activity_level": core.get("environment", {}).get("activity_level", ""),
-        "total_object_coverage": global_geometry.get("total_object_coverage", ""),
-        "object_density_proxy": global_geometry.get("object_density_proxy", ""),
-        "metadata_detector": metadata.get("detector", ""),
-        "metadata_scene_model": metadata.get("scene_model", {}).get("architecture", ""),
-        "metadata_caption_mode": metadata.get("caption_mode", ""),
-    }
+    core = data.get("core", {})
+    if is_audioset_core_json(data):
+        scene_node = core.get("scene", {})
+        nodes = core.get("nodes", [])
+
+        return {
+            "image_id": core.get("image_id", json_path.stem),
+            "json_path": str(json_path),
+            "detector": detector,
+            "scene_model": scene_model,
+            "captioner": captioner,
+            "caption": core.get("caption", ""),
+            "scene_audioset_id": scene_node.get("audioset_id", ""),
+            "scene_audioset_name": scene_node.get("audioset_name", ""),
+            "scene_confidence": scene_node.get("confidence", ""),
+            "n_nodes": len(nodes),
+            "total_object_coverage": global_geometry.get("total_object_coverage", ""),
+            "object_density_proxy": global_geometry.get("object_density_proxy", ""),
+            "metadata_detector": metadata.get("detector", ""),
+            "metadata_scene_model": metadata.get("scene_model", {}).get("architecture", ""),
+            "metadata_caption_mode": metadata.get("caption_mode", ""),   
+        }
+
+    else:
+        scene = core.get("scene", {})
+        entities = core.get("entities", [])
+        interactions = core.get("observed_interactions", [])
+
+        return {
+            "image_id": core.get("image_id", json_path.stem),
+            "json_path": str(json_path),
+            "detector": detector,
+            "scene_model": scene_model,
+            "captioner": captioner,
+            "caption": core.get("caption", ""),
+            "scene_label": scene.get("label", ""),
+            "scene_confidence": scene.get("confidence", ""),
+            "indoor_outdoor": scene.get("indoor_outdoor", ""),
+            "n_entities": len(entities),
+            "n_interactions": len(interactions),
+            "crowd_level": core.get("environment", {}).get("crowd_level", ""),
+            "activity_level": core.get("environment", {}).get("activity_level", ""),
+            "total_object_coverage": global_geometry.get("total_object_coverage", ""),
+            "object_density_proxy": global_geometry.get("object_density_proxy", ""),
+            "metadata_detector": metadata.get("detector", ""),
+            "metadata_scene_model": metadata.get("scene_model", {}).get("architecture", ""),
+            "metadata_caption_mode": metadata.get("caption_mode", ""),
+        }
 
 
 def main() -> None:

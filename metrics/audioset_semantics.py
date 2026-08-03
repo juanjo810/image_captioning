@@ -17,7 +17,7 @@ from scripts.evaluation.evaluate_structured_vg import prf
 from scripts.evaluation.vg_utils import canonicalize, normalize_text
 
 
-AudioSetPredictionSource = Literal["core_rules", "vlm_nodes", "union"]
+AudioSetPredictionSource = Literal["core_rules", "vlm_nodes", "union", "core_nodes"]
 
 
 # Visual Genome has no AudioSet labels. These deterministic concepts are
@@ -477,7 +477,7 @@ def predicted_audioset_tag_counts(
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
     ontology: AudioSetOntology,
-    pred_source: AudioSetPredictionSource = "core_rules",
+    pred_source: AudioSetPredictionSource = "core_nodes",
 ) -> dict[str, int]:
     if pred_source == "core_rules":
         return prediction_audioset_tag_counts(
@@ -506,6 +506,12 @@ def predicted_audioset_tag_counts(
         ):
             counts[node_id] = max(1, counts[node_id])
         return dict(counts)
+
+    if pred_source == "core_nodes":
+        return core_nodes_tag_counts(
+            pred_json=pred_json,
+            ontology=ontology,
+        ) 
 
     raise ValueError(f"Unknown AudioSet prediction source: {pred_source}")
 
@@ -537,7 +543,7 @@ def compute_audioset_metrics(
     gt_relationships: set[tuple[str, str, str]],
     object_alias: dict[str, str],
     relationship_alias: dict[str, str],
-    pred_source: AudioSetPredictionSource = "core_rules",
+    pred_source: AudioSetPredictionSource = "core_nodes",
 ) -> dict[str, Any]:
     """Compute ontology-driven hierarchical AudioSet pseudo-reference metrics."""
 
@@ -626,3 +632,36 @@ def compute_audioset_metrics(
             f"{tag}:{ref_counts[tag]}" for tag in sorted(ref_counts)
         ),
     }
+
+def core_nodes_tag_counts(
+    pred_json: dict[str, Any],
+    ontology: AudioSetOntology | None = None,
+) -> dict[str, int]:
+    ontology = ontology or load_audioset_ontology()
+    allowed_ids = {rule.id for rule in audioset_leaf_rules()}
+    node_ids: set[str] = set()
+
+    # Pending confirmation from tutor: should the scene node count toward the
+    # AudioSet exact-match F1 alongside core.nodes? Some scene-level leaf rules
+    # (e.g. "Outside, urban or manmade") can also be triggered from VG object
+    # terms on the reference side, so it is not purely noise, but this was not
+    # part of the original plan (paso 5.1) and needs sign-off before it feeds
+    # the official metric. Disabled until then.
+    # raw_scene_node = pred_json.get("core", {}).get("scene", {})
+    # node_id = str(raw_scene_node.get("audioset_id") or "").strip()
+    # if node_id in allowed_ids and ontology.is_usable_label(node_id):
+    #     node_ids.add(node_id)
+
+    raw_nodes = pred_json.get("core", {}).get("nodes", [])
+    if not isinstance(raw_nodes, list):
+        return {}
+
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            continue
+
+        node_id = str(raw_node.get("audioset_id") or "").strip()
+        if node_id in allowed_ids and ontology.is_usable_label(node_id):
+            node_ids.add(node_id)
+
+    return {node_id: 1 for node_id in sorted(node_ids)}
