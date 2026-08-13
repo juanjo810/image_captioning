@@ -48,8 +48,9 @@ class AudioSetCoreNode(StrictBaseModel):
     node_type: AudioSetNodeType
     evidence: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
-    # parent_ids: 
-    # top_level_ids: 
+    parent_ids: list[str] | None = Field(default=None, min_length=1)
+    top_level_ids: list[str] | None = Field(default=None, min_length=1)
+
 
 class AudioSetCoreJSON(StrictBaseModel):
     image_id: str = Field(min_length=1)
@@ -60,14 +61,15 @@ class AudioSetCoreJSON(StrictBaseModel):
 
 class AudioSetGrounding(StrictBaseModel):
     node_id: str = Field(pattern=r"^n[0-9]+$")
-    visual_evidence: str = Field(min_length=1)
     visual_label_raw: str = Field(min_length=1)
     bbox: list[float] = Field(min_length=4, max_length=4)
     source: str = Field(min_length=1)
+    detector_confidence: float = Field(ge=0.0, le=1.0)
 
 
 class AudioSetExtendedJSON(StrictBaseModel):
     grounding: list[AudioSetGrounding]
+    global_geometry: GlobalGeometry
 
 
 class Scene(StrictBaseModel):

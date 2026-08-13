@@ -2,7 +2,37 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.schemas import Entity, ObservedInteraction
+from src.schemas import Entity, ObservedInteraction, AudioSetCoreNode, AudioSetScene
+
+_AUDIOSET_SCENE_PHRASES = {
+    "Inside, small room": "An indoor",
+    "Outside, urban or manmade": "An outdoor urban",
+    "Outside, rural or natural": "An outdoor rural",
+}
+
+
+def _audioset_node_phrase(audioset_name: str, instance_count: int | None) -> str:
+    """Verbalize one AudioSet node, singular/plural when the instance count is known.
+
+    ``instance_count`` is only meaningful for single-evidence-group rules (e.g. "Dog"
+    triggered purely by detected dogs) -- there it is the number of matched detections.
+    For composite rules (e.g. "Walk, footsteps" needs man + pedestrian + street at once)
+    there is no single object being counted, so the caller passes ``None`` and the term
+    is used as-is, the same way "speech" or "footsteps" already read fine without an
+    article.
+    """
+
+    primary_term = audioset_name.split(",")[0].strip()
+    label = primary_term.lower()
+
+    if instance_count is None:
+        return label
+
+    if instance_count > 1:
+        return f"{label}s"
+
+    article = "an" if label[0] in "aeiou" else "a"
+    return f"{article} {label}"
 
 
 def describe_spatial_relations(
@@ -172,6 +202,31 @@ def build_caption(
             sentences.append(spatial_sentence)
 
     return _finalize_caption(sentences)
+
+# "An outdoor urban scene where vehicle engine noise, footsteps and speech would plausibly be heard."
+def build_audioset_caption(
+    scene: AudioSetScene,
+    nodes: list[AudioSetCoreNode],
+    node_instance_counts: dict[str, int | None] | None = None,
+) -> str:
+    scene_phrase = _AUDIOSET_SCENE_PHRASES.get(scene.audioset_name, "A")
+
+    if not nodes:
+        return _finalize_caption([f"{scene_phrase} scene"])
+
+    node_instance_counts = node_instance_counts or {}
+    ranked_nodes = sorted(nodes, key=lambda n: n.confidence, reverse=True)
+    sound_labels = [
+        _audioset_node_phrase(node.audioset_name, node_instance_counts.get(node.node_id))
+        for node in ranked_nodes
+    ]
+
+    sentence = (
+        f"{scene_phrase} scene where {_join_labels(sound_labels)} "
+        "would plausibly be heard"
+    )
+
+    return _finalize_caption([sentence])
 
 
 def _finalize_caption(sentences: list[str]) -> str:

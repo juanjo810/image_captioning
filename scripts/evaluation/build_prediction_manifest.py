@@ -18,6 +18,12 @@ def parse_condition(path: Path) -> tuple[str, str, str]:
     elif name.startswith("owlv2_"):
         detector = "owlv2"
         scene_model = name.replace("owlv2_", "")
+    elif name in {"json", "legacy"}:
+        # Workflow A layout: <output_dir>/json/<id>.json (or
+        # <output_dir>/legacy/json/<id>.json) — the immediate parent is never
+        # the run's identifying name, so climb to <output_dir> instead.
+        detector = "unknown"
+        scene_model = path.parent.parent.name
     else:
         detector = "unknown"
         scene_model = "unknown"

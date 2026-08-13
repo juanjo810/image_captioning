@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from PIL import Image
 
 from src.fusion import build_from_modules
+from src.workflow_b.audioset_projection import project_detections_to_audioset
 from src.postprocessing import filter_detections
 from src.captioning import build_caption
 from src.workflow_b.grounding_dino_adapter import GroundingDINOAdapter
@@ -32,8 +33,6 @@ from src.workflow_b.vocabularies import (
     iter_grounding_prompt_batches,
 )
 from src.workflow_b.upt_adapter import UPTAdapter
-from src.workflow_b.owlv2_adapter import OWLv2Adapter
-
 
 
 def make_demo_dummy_hoi() -> DummyHOIAdapter:
@@ -99,7 +98,7 @@ def main() -> None:
     parser.add_argument(
         "--hoi",
         choices=["none", "dummy", "upt"],
-        default="upt",
+        default="none",
         help="HOI backend to use. 'dummy' is only for fusion smoke tests.",
     )
     parser.add_argument(
@@ -120,6 +119,12 @@ def main() -> None:
         help="Enable verbose logging.",
     )
 
+    parser.add_argument(
+        "--legacy-visual-core",
+        action="store_true",
+        help="Uses the legacy visual core instead of the current audioset core"
+    )
+    
     args = parser.parse_args()
 
     base = Path("/home/jovyan/projects")
@@ -154,11 +159,13 @@ def main() -> None:
         topk=5,
     )
 
+    effective_vocab_mode = args.vocab_mode if args.legacy_visual_core else "audioset"
+
     raw_detections = []
 
     for batch in iter_grounding_prompt_batches(
         scene_label=scene["label"],
-        vocab_mode=args.vocab_mode,
+        vocab_mode=effective_vocab_mode,
     ):
         batch_detections = detector.predict(
             image_path=image_path,
@@ -195,85 +202,105 @@ def main() -> None:
     with Image.open(image_path) as img:
         width, height = img.size
 
-    core, extended = build_from_modules(
-        image_id=image_path.stem,
-        width=width,
-        height=height,
-        detections=detections,
-        scene_label=scene["label"],
-        scene_conf=scene["confidence"],
-        hoi=[],
-    )
-
-    core.scene.indoor_outdoor = infer_indoor_outdoor_from_scene(scene["label"])
-
-    raw_hois = []
-    if args.hoi == "dummy":
-        hoi_adapter = make_demo_dummy_hoi()
-        raw_hois = hoi_adapter.predict(image_path)
-        interactions = build_observed_interactions(
-            raw_hois=raw_hois,
-            entities_extended=extended.model_dump()["entities_extended"],
+    if(args.legacy_visual_core):
+        core, extended = build_from_modules(
+            image_id=image_path.stem,
+            width=width,
+            height=height,
+            detections=detections,
+            scene_label=scene["label"],
+            scene_conf=scene["confidence"],
+            hoi=[],
         )
-        core.observed_interactions = interactions
-        core.environment.activity_level = "medium" if interactions else "low"
-        core.caption = core.caption if not interactions else core.caption
+    else:
+        core, extended = project_detections_to_audioset(
+            detections=detections, 
+            scene_label=scene["label"], 
+            scene_confidence=scene["confidence"], 
+            width=width, 
+            height=height, 
+            image_id=image_path.stem,
+        )  
 
-    elif args.hoi == "upt":
-        hoi_adapter = UPTAdapter(
-            upt_root=base / "upt",
-            checkpoint_path=base / "models/upt/upt-r50-hicodet.pt",
-            data_root=base / "upt/hicodet",
-            device="cuda",
-            action_score_thresh=0.10,
-        )
-        raw_hois = hoi_adapter.predict(image_path)
-        interactions = build_observed_interactions(
-            raw_hois=raw_hois,
-            entities_extended=extended.model_dump()["entities_extended"],
-        )
-        core.observed_interactions = interactions
-        core.environment.activity_level = "medium" if interactions else "low"
+    if(args.legacy_visual_core):
+        core.scene.indoor_outdoor = infer_indoor_outdoor_from_scene(scene["label"])
 
-    if args.verbose:
-        print("RAW HOIS")
-        for h in raw_hois:
-            print(
-                h.verb,
-                round(h.confidence, 4),
-                "human_bbox=", [round(x, 1) for x in h.human_bbox],
-                "object_bbox=", [round(x, 1) for x in h.object_bbox],
+        raw_hois = []
+        if args.hoi == "dummy" and args.legacy_visual_core:
+            hoi_adapter = make_demo_dummy_hoi()
+            raw_hois = hoi_adapter.predict(image_path)
+            interactions = build_observed_interactions(
+                raw_hois=raw_hois,
+                entities_extended=extended.model_dump()["entities_extended"],
             )
-    
+            core.observed_interactions = interactions
+            core.environment.activity_level = "medium" if interactions else "low"
+            core.caption = core.caption if not interactions else core.caption
 
-    core.caption = build_caption(
-        scene_label=core.scene.label,
-        entities=core.entities,
-        interactions=core.observed_interactions,
-        spatial_relations=[r.model_dump() for r in core.spatial_relations],
-        indoor_outdoor=core.scene.indoor_outdoor,
-        entities_extended=extended.model_dump()["entities_extended"]
-    )
+        elif args.hoi == "upt":
+            hoi_adapter = UPTAdapter(
+                upt_root=base / "upt",
+                checkpoint_path=base / "models/upt/upt-r50-hicodet.pt",
+                data_root=base / "upt/hicodet",
+                device="cuda",
+                action_score_thresh=0.10,
+            )
+            raw_hois = hoi_adapter.predict(image_path)
+            interactions = build_observed_interactions(
+                raw_hois=raw_hois,
+                entities_extended=extended.model_dump()["entities_extended"],
+            )
+            core.observed_interactions = interactions
+            core.environment.activity_level = "medium" if interactions else "low"
+
+        if args.verbose:
+            print("RAW HOIS")
+            for h in raw_hois:
+                print(
+                    h.verb,
+                    round(h.confidence, 4),
+                    "human_bbox=", [round(x, 1) for x in h.human_bbox],
+                    "object_bbox=", [round(x, 1) for x in h.object_bbox],
+                )
+    
+        core.caption = build_caption(
+            scene_label=core.scene.label,
+            entities=core.entities,
+            interactions=core.observed_interactions,
+            spatial_relations=[r.model_dump() for r in core.spatial_relations],
+            indoor_outdoor=core.scene.indoor_outdoor,
+            entities_extended=extended.model_dump()["entities_extended"]
+        )
+
+    metadata = {
+        "detector": args.detector,
+        "vocab_mode": args.vocab_mode,
+        "scene_model": scene,
+        "hoi_backend": args.hoi,
+        "raw_hoi_count": len(raw_hois),
+        "box_threshold": args.box_threshold,
+        "text_threshold": args.text_threshold,
+        "min_confidence": args.min_confidence,
+    } if args.legacy_visual_core else {
+        "workflow": "B",
+        "detector": args.detector,
+        "vocab_mode": "audioset",
+        "audioset_vocab_version": "audioset_visual_vocab_v1",
+        "ontology_mode": "dag"
+    }
 
     output = {
         "core": core.model_dump(),
         "extended": extended.model_dump(),
-        "metadata": {
-            "detector": args.detector,
-            "vocab_mode": args.vocab_mode,
-            "scene_model": scene,
-            "hoi_backend": args.hoi,
-            "raw_hoi_count": len(raw_hois),
-            "box_threshold": args.box_threshold,
-            "text_threshold": args.text_threshold,
-            "min_confidence": args.min_confidence,
-        },
+        "metadata": metadata
     }
 
     output_text = json.dumps(output, indent=2, ensure_ascii=False)
 
     if args.output_dir is not None:
         output_dir = Path(args.output_dir)
+        if(args.legacy_visual_core):
+            output_dir = output_dir / "legacy"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         output_name = args.output_name or f"{image_path.stem}.json"

@@ -138,7 +138,7 @@ class WorkflowAPipeline:
             metadata["audioset_allowed_nodes"] = list(allowed_audioset_nodes)
 
         payload = {
-            "core": core.model_dump(),
+            "core": core.model_dump(exclude_none=True),
             "metadata": metadata,
         }
         if acoustic_semantics is not None:
