@@ -2,13 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.schemas import Entity, ObservedInteraction, AudioSetCoreNode, AudioSetScene
-
-_AUDIOSET_SCENE_PHRASES = {
-    "Inside, small room": "An indoor",
-    "Outside, urban or manmade": "An outdoor urban",
-    "Outside, rural or natural": "An outdoor rural",
-}
+from src.schemas import Entity, ObservedInteraction, AudioSetCoreNode, Scene
 
 
 def _audioset_node_phrase(audioset_name: str, instance_count: int | None) -> str:
@@ -203,28 +197,42 @@ def build_caption(
 
     return _finalize_caption(sentences)
 
-# "An outdoor urban scene where vehicle engine noise, footsteps and speech would plausibly be heard."
+
 def build_audioset_caption(
-    scene: AudioSetScene,
+    scene: Scene,
     nodes: list[AudioSetCoreNode],
     node_instance_counts: dict[str, int | None] | None = None,
 ) -> str:
-    scene_phrase = _AUDIOSET_SCENE_PHRASES.get(scene.audioset_name, "A")
+    scene_text = _scene_phrase(scene.label, scene.indoor_outdoor)
 
     if not nodes:
-        return _finalize_caption([f"{scene_phrase} scene"])
+        return _finalize_caption([f"The image shows {scene_text}"])
 
     node_instance_counts = node_instance_counts or {}
     ranked_nodes = sorted(nodes, key=lambda n: n.confidence, reverse=True)
+
+    visual_objects: list[str] = []
+    for node in ranked_nodes:
+        for term in node.visual_evidence_terms or []:
+            if term not in visual_objects:
+                visual_objects.append(term)
+    visual_objects = visual_objects[:8]
+
     sound_labels = [
         _audioset_node_phrase(node.audioset_name, node_instance_counts.get(node.node_id))
         for node in ranked_nodes
     ]
 
-    sentence = (
-        f"{scene_phrase} scene where {_join_labels(sound_labels)} "
-        "would plausibly be heard"
-    )
+    if visual_objects:
+        sentence = (
+            f"The image shows {scene_text} with {_join_labels(visual_objects)}, "
+            f"where {_join_labels(sound_labels)} would plausibly be heard"
+        )
+    else:
+        sentence = (
+            f"The image shows {scene_text}, where {_join_labels(sound_labels)} "
+            "would plausibly be heard"
+        )
 
     return _finalize_caption([sentence])
 

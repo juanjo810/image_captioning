@@ -17,32 +17,10 @@ from src.schemas import (
     AudioSetCoreNode,
     AudioSetExtendedJSON,
     AudioSetGrounding,
-    AudioSetScene,
+    Scene,
     GlobalGeometry,
 )
-from src.workflow_b.vocabularies import (
-    infer_indoor_outdoor_from_scene,
-    scene_groups_for_label,
-)
-
-_INDOOR_AUDIOSET_NAME = "Inside, small room"
-_URBAN_OUTDOOR_AUDIOSET_NAME = "Outside, urban or manmade"
-_RURAL_OUTDOOR_AUDIOSET_NAME = "Outside, rural or natural"
-
-_RURAL_OUTDOOR_SCENE_GROUPS = {
-    "rural_traditional",
-    "natural_outdoor",
-    "coastal_water",
-    "garden_park",
-}
-_URBAN_OUTDOOR_SCENE_GROUPS = {
-    "market_public",
-    "religious_heritage",
-    "urban_transport",
-    "sports_recreation",
-    "industrial_workshop",
-    "entertainment_culture",
-}
+from src.workflow_b.vocabularies import infer_indoor_outdoor_from_scene
 
 
 def _normalize_detection_labels(
@@ -59,7 +37,7 @@ def _normalize_detection_labels(
 def _match_leaf_rules(
     detections: list[Detection],
     normalized_labels: dict[int, str],
-) -> list[tuple[AudioSetCoreNode, list[Detection], int | None]]:
+) -> list[tuple[AudioSetCoreNode, list[AudioSetGrounding], int | None]]:
     results = []
     count = 0
 
@@ -86,43 +64,29 @@ def _match_leaf_rules(
         instance_count = len(group_matches[0]) if len(group_matches) == 1 else None
 
         count += 1
+        node_id = f"n{count}"
         node = AudioSetCoreNode(
-            node_id=f"n{count}",
+            node_id=node_id,
             audioset_id=rule.id,
             audioset_name=rule.name,
             node_type="visible_source",
             evidence=f"Detected visual source: {', '.join(sorted({d.label for d in firing_detections}))}",
+            visual_evidence_terms=sorted({normalize_text(d.label) for d in firing_detections}),
             confidence=confidence,
         )
-        results.append((node, firing_detections, instance_count))
+        groundings = [
+            AudioSetGrounding(
+                node_id=node_id,
+                visual_label_raw=det.label,
+                bbox=det.bbox,
+                source=det.source,
+                detector_confidence=det.confidence,
+            )
+            for det in firing_detections
+        ]
+        results.append((node, groundings, instance_count))
 
     return results
-
-
-def _scene_to_audioset_scene(
-    scene_label: str,
-    scene_confidence: float,
-) -> AudioSetScene:
-    indoor_outdoor = infer_indoor_outdoor_from_scene(scene_label)
-
-    if indoor_outdoor == "indoor":
-        audioset_name = _INDOOR_AUDIOSET_NAME
-    else:
-        groups = set(scene_groups_for_label(scene_label))
-        if groups & _RURAL_OUTDOOR_SCENE_GROUPS:
-            audioset_name = _RURAL_OUTDOOR_AUDIOSET_NAME
-        else:
-            audioset_name = _URBAN_OUTDOOR_AUDIOSET_NAME
-
-    ontology = load_audioset_ontology()
-    node_id = ontology.resolve_name(audioset_name)
-
-    return AudioSetScene(
-        audioset_id=node_id,
-        audioset_name=audioset_name,
-        confidence=scene_confidence,
-        evidence=f"Places365 scene: {scene_label}",
-    )
 
 
 def project_detections_to_audioset(
@@ -151,7 +115,11 @@ def project_detections_to_audioset(
         )
         nodes.append(node)
 
-    audioset_scene = _scene_to_audioset_scene(scene_label, scene_confidence)
+    audioset_scene = Scene(
+        label=scene_label,
+        indoor_outdoor=infer_indoor_outdoor_from_scene(scene_label),
+        confidence=scene_confidence
+    )
 
     caption = build_audioset_caption(audioset_scene, nodes, node_instance_counts)
 
@@ -176,17 +144,11 @@ def project_detections_to_audioset(
     )
 
     grounding = [
-        AudioSetGrounding(
-            node_id=rule[0].node_id,
-            visual_label_raw=det.label,
-            bbox=det.bbox,
-            source=det.source,
-            detector_confidence=det.confidence,
-        )
+        grounding_entry
         for rule in matching_rules
-        for det in rule[1] 
+        for grounding_entry in rule[1]
     ]
-    
+
     extended = AudioSetExtendedJSON(
         grounding=grounding,
         global_geometry=global_geometry,
