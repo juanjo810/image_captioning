@@ -641,17 +641,6 @@ def core_nodes_tag_counts(
     allowed_ids = {rule.id for rule in audioset_leaf_rules()}
     node_ids: set[str] = set()
 
-    # Pending confirmation from tutor: should the scene node count toward the
-    # AudioSet exact-match F1 alongside core.nodes? Some scene-level leaf rules
-    # (e.g. "Outside, urban or manmade") can also be triggered from VG object
-    # terms on the reference side, so it is not purely noise, but this was not
-    # part of the original plan (paso 5.1) and needs sign-off before it feeds
-    # the official metric. Disabled until then.
-    # raw_scene_node = pred_json.get("core", {}).get("scene", {})
-    # node_id = str(raw_scene_node.get("audioset_id") or "").strip()
-    # if node_id in allowed_ids and ontology.is_usable_label(node_id):
-    #     node_ids.add(node_id)
-
     raw_nodes = pred_json.get("core", {}).get("nodes", [])
     if not isinstance(raw_nodes, list):
         return {}

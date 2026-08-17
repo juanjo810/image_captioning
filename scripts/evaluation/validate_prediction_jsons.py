@@ -5,6 +5,7 @@ import csv
 import json
 from pathlib import Path
 
+from metrics.audioset_leaf_vocab import audioset_detectable_terms
 from metrics.audioset_ontology import AudioSetOntology, load_audioset_ontology
 from scripts.evaluation.vg_utils import is_audioset_core_json
 
@@ -31,12 +32,22 @@ def compute_audioset_json_metrics(
     node_ids = {n.get("node_id") for n in nodes if n.get("node_id")}
     grounding_node_ids = {g.get("node_id") for g in grounding if g.get("node_id")}
 
+    allowed_visual_terms = set(audioset_detectable_terms())
+
     valid_audioset_id_count = 0
+    nodes_with_visual_evidence_terms = 0
+    valid_visual_evidence_terms_count = 0
 
     for node in nodes:
         audioset_id = str(node.get("audioset_id") or "").strip()
         if audioset_id and audioset_id in ontology.node_by_id:
             valid_audioset_id_count += 1
+
+        terms = node.get("visual_evidence_terms")
+        if terms:
+            nodes_with_visual_evidence_terms += 1
+            if set(terms) <= allowed_visual_terms:
+                valid_visual_evidence_terms_count += 1
 
     n_nodes = len(nodes)
 
@@ -53,8 +64,13 @@ def compute_audioset_json_metrics(
         "audioset_id_valid_ratio": (
             valid_audioset_id_count / n_nodes if n_nodes > 0 else 1.0
         ),
+        "visual_evidence_terms_valid_ratio": (
+            valid_visual_evidence_terms_count / nodes_with_visual_evidence_terms
+            if nodes_with_visual_evidence_terms > 0
+            else 1.0
+        ),
         "has_caption": bool(core.get("caption")),
-        "scene_audioset_id": core.get("scene", {}).get("audioset_id", ""),
+        "scene_label": core.get("scene", {}).get("label", ""),
         "scene_confidence": core.get("scene", {}).get("confidence", ""),
     }
 

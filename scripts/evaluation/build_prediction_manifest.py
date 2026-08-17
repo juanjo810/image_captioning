@@ -41,7 +41,7 @@ def summarize_json(json_path: Path) -> dict:
 
     core = data.get("core", {})
     if is_audioset_core_json(data):
-        scene_node = core.get("scene", {})
+        scene = core.get("scene", {})
         nodes = core.get("nodes", [])
 
         return {
@@ -51,9 +51,9 @@ def summarize_json(json_path: Path) -> dict:
             "scene_model": scene_model,
             "captioner": captioner,
             "caption": core.get("caption", ""),
-            "scene_audioset_id": scene_node.get("audioset_id", ""),
-            "scene_audioset_name": scene_node.get("audioset_name", ""),
-            "scene_confidence": scene_node.get("confidence", ""),
+            "scene_label": scene.get("label", ""),
+            "scene_confidence": scene.get("confidence", ""),
+            "indoor_outdoor": scene.get("indoor_outdoor", ""),
             "n_nodes": len(nodes),
             "total_object_coverage": global_geometry.get("total_object_coverage", ""),
             "object_density_proxy": global_geometry.get("object_density_proxy", ""),
