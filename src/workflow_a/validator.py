@@ -5,8 +5,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from metrics.audioset_leaf_vocab import audioset_detectable_terms
 from src.schemas import AcousticSemantics, CoreJSON, AudioSetCoreJSON
 from src.workflow_b.constants import CATEGORY_MAP
+from src.workflow_b.vocabularies import infer_indoor_outdoor_from_scene
 
 ENTITY_CATEGORIES = {
     "human",
@@ -247,8 +249,9 @@ def validate_legacy_acoustic_semantics_output(
     
 
 def normalize_audioset_core_payload(
-        payload: dict[str, Any], 
+        payload: dict[str, Any],
         allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
+        allowed_scene_labels: list[str] | tuple[str, ...] = (),
         image_id: str | None = None,
 ) -> dict[str, Any]:
     core = unwrap_vlm_payload(payload)
@@ -266,31 +269,21 @@ def normalize_audioset_core_payload(
     by_id = {node["id"]: node["name"] for node in allowed_audioset_nodes}
     by_name = {normalize_label(node["name"], default=""): node["id"] for node in allowed_audioset_nodes}
 
-    if not isinstance(raw_scene, dict):
-        return {"scene": {}}
+    allowed_scene_labels_normalized = {normalize_label(label, default="") for label in allowed_scene_labels}
+    allowed_visual_terms = set(audioset_detectable_terms())
 
-    audioset_id = str(raw_scene.get("audioset_id") or "").strip()
-    audioset_name = normalize_label(raw_scene.get("audioset_name"), default="")
+    scene_label = normalize_label(raw_scene.get("label"), default="")
+    if scene_label not in allowed_scene_labels_normalized:
+        raise ValueError("Scene label not in allowed Places365 labels")
 
-    if audioset_id not in by_id and audioset_name in by_name:
-        audioset_id = by_name[audioset_name]
+    indoor_outdoor = normalize_label(raw_scene.get("indoor_outdoor"), default="unknown")
+    if indoor_outdoor not in INDOOR_OUTDOOR:
+        indoor_outdoor = infer_indoor_outdoor_from_scene(scene_label)
 
-    if audioset_id not in by_id:
-        raise ValueError("Audioset id not in allowed audioset nodes")
-
-    audioset_evidence = str(raw_scene.get("evidence") or "").strip()
-    if not audioset_evidence:
-        raise ValueError("Audioset scene has no evidence")
-
-    audioset_confidence = normalize_confidence(raw_scene.get("confidence"), default=0.5)
-
-    normalized_scene = {
-        "audioset_id": audioset_id,
-        "audioset_name": by_id[audioset_id],
-        "confidence": audioset_confidence,
-        "evidence": audioset_evidence
+    core["scene"] = {
+        "label": scene_label,
+        "indoor_outdoor": indoor_outdoor,
     }
-    core["scene"] = normalized_scene
 
 
     raw_nodes = core.get("nodes", [])
@@ -323,13 +316,25 @@ def normalize_audioset_core_payload(
         if node_type not in ACOUSTIC_INFERENCE_TYPES:
             node_type = "uncertain"
 
+        raw_terms = raw_node.get("visual_evidence_terms")
+        visual_evidence_terms = None
+        if isinstance(raw_terms, list):
+            seen_terms = set()
+            filtered_terms = []
+            for term in raw_terms:
+                normalized_term = normalize_label(term, default="")
+                if normalized_term in allowed_visual_terms and normalized_term not in seen_terms:
+                    filtered_terms.append(normalized_term)
+                    seen_terms.add(normalized_term)
+            visual_evidence_terms = filtered_terms or None
+
         normalized_nodes.append({
             "node_id": new_id,
             "audioset_id": audioset_id,
             "audioset_name": by_id[audioset_id],
             "node_type": node_type,
             "evidence": evidence,
-            "confidence": normalize_confidence(raw_node.get("confidence"), default=0.5),
+            "visual_evidence_terms": visual_evidence_terms,
         })
         seen_ids.add(audioset_id)
 
@@ -337,18 +342,22 @@ def normalize_audioset_core_payload(
 
     caption = str(core.get("caption") or "A visual scene.").strip()
     core["caption"] = caption if caption.endswith(".") else caption + "."
-    
+
+    core.pop("visual_terms", None)
+
     return core
 
 
 def validate_audioset_workflow_a_output(
     payload: dict[str, Any],
     allowed_audioset_nodes: list[dict[str, str]] | tuple[dict[str, str], ...],
+    allowed_scene_labels: list[str] | tuple[str, ...] = (),
     image_id: str | None = None,
 ) -> CoreJSON:
     normalized = normalize_audioset_core_payload(
         payload=payload,
         allowed_audioset_nodes=allowed_audioset_nodes,
+        allowed_scene_labels=allowed_scene_labels,
         image_id=image_id,
     )
     try:

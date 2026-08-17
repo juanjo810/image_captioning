@@ -4,12 +4,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.workflow_a.audioset_nodes import default_allowed_audioset_nodes
+from src.workflow_a.audioset_nodes import (
+    default_allowed_audioset_nodes,
+    default_allowed_visual_terms,
+)
 from src.workflow_a.parser import extract_json_block
 from src.workflow_a.prompt_builder import (
-    build_workflow_a_legacy_visual_prompt, 
+    build_workflow_a_legacy_visual_prompt,
     build_workflow_a_audioset_core_prompt
 )
+from src.workflow_b.places365_mapping import allowed_places365_labels
 from src.workflow_a.validator import (
     validate_legacy_acoustic_semantics_output,
     validate_legacy_workflow_a_output,
@@ -61,10 +65,13 @@ class WorkflowAPipeline:
                 include_audioset_nodes=include_audioset_nodes,
                 allowed_audioset_nodes=allowed_audioset_nodes,
             )
-        else: 
+        else:
             allowed_audioset_nodes = default_allowed_audioset_nodes()
+            allowed_scene_labels = allowed_places365_labels()
             prompt = build_workflow_a_audioset_core_prompt(
                 allowed_audioset_nodes=allowed_audioset_nodes,
+                allowed_visual_terms=default_allowed_visual_terms(),
+                allowed_scene_labels=allowed_scene_labels,
             )
 
         raw_output = self.vlm.generate(
@@ -99,6 +106,7 @@ class WorkflowAPipeline:
                     parsed,
                     image_id=image_path.stem,
                     allowed_audioset_nodes=allowed_audioset_nodes,
+                    allowed_scene_labels=allowed_scene_labels,
                 )
                 acoustic_semantics = None
 

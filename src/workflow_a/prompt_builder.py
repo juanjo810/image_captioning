@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from src.workflow_a.audioset_nodes import format_allowed_audioset_nodes_for_prompt
+from src.workflow_a.audioset_nodes import (
+    format_allowed_audioset_nodes_for_prompt,
+    format_allowed_visual_terms_for_prompt,
+)
 
 
 def build_workflow_a_legacy_visual_prompt(
@@ -91,6 +94,8 @@ Add this sibling section after "core":
 def build_workflow_a_audioset_core_prompt(
     *,
     allowed_audioset_nodes: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    allowed_visual_terms: tuple[str, ...] | list[str] = (),
+    allowed_scene_labels: tuple[str, ...] | list[str] = (),
 ) -> str:
     base_prompt = """
 Return ONLY one valid JSON object. No markdown. No explanations.
@@ -98,6 +103,12 @@ The JSON must start with { and end with }.
 
 Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
 This section is NOT actual audio recognition. It contains acoustically plausible AudioSet ontology nodes inferred only from explicit visual evidence in the image.
+
+Build the JSON in two stages, both inside this single response.
+
+STAGE 1 -- "visual_terms": list every visual term you can clearly see in the image, choosing ONLY from the allowed visual-term list below. Do not invent a term that is not in that list, and do not list a term you cannot actually see.
+
+STAGE 2 -- "nodes": for each AudioSet node you infer, derive it FROM the terms you just wrote in "visual_terms". Every node's "visual_evidence_terms" must be a subset of "visual_terms" — never introduce a term there that is not already in "visual_terms". The only exception is a "scene_affordance" node (ambient sound implied by the scene type itself, not by one specific visible object): for that node type you may omit "visual_evidence_terms" entirely.
 
 Allowed node_type values: visible_source, visible_action, scene_affordance, uncertain.
 - visible_source: the sound-producing object/animal/instrument itself is visibly present (e.g. a dog, a guitar, a car engine).
@@ -110,12 +121,18 @@ Rules:
 - Do not infer speech merely from a visible person.
 - Do not infer music unless instruments, performers, dance, a stage, or other explicit musical context are visible.
 - Do not infer environmental or mechanical sounds unless there are clear visible cues for them.
-- Each node's audioset_id and audioset_name must come from the SAME entry in the allowed list below — never mix an id from one entry with the name of another.
-- Do not invent audioset_id or audioset_name values that are not in the allowed list.
+- Each node's audioset_id and audioset_name must come from the SAME entry in the allowed AudioSet list below — never mix an id from one entry with the name of another.
+- Do not invent audioset_id or audioset_name values that are not in the allowed AudioSet list.
 - node_id values must be unique and sequential: n1, n2, n3, and so on.
 - If no AudioSet node is visually justified, return an empty "nodes" array.
-- The scene's audioset_id/audioset_name must also come from the allowed list and match the SAME entry, chosen as the closest description of the overall scene.
+- The scene's "label" must be chosen from the allowed scene-label list below, as the closest description of the overall scene.
+- "indoor_outdoor" must be one of: indoor, outdoor, mixed, unknown.
 - Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
+
+CAPTION RULE (strict):
+Write "caption" LAST, after you have finalized "nodes". Structure it as exactly two clauses:
+"The image shows <scene description> with <the concrete visual objects from visual_terms>, where <sounds> would plausibly be heard."
+The <sounds> clause must name ONE short sound phrase PER NODE in "nodes", IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name you already wrote above. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, drop the "where..." clause entirely and just describe the visible objects. Before writing the caption, count your nodes and count the sounds you are about to mention — the two counts must match exactly.
 """.strip()
 
     json_schema_prompt = """
@@ -123,11 +140,10 @@ Return exactly this schema:
 {
   "core": {
     "image_id": "unknown",
+    "visual_terms": ["person", "car", "dog"],
     "scene": {
-      "audioset_id": "/m/0k4j",
-      "audioset_name": "Outside, urban or manmade",
-      "confidence": 0.82,
-      "evidence": "urban street visible with buildings and traffic"
+      "label": "street",
+      "indoor_outdoor": "outdoor"
     },
     "nodes": [
       {
@@ -136,22 +152,40 @@ Return exactly this schema:
         "audioset_name": "Walk, footsteps",
         "node_type": "visible_action",
         "evidence": "people walking on the pavement",
-        "confidence": 0.80
+        "visual_evidence_terms": ["person"]
+      },
+      {
+        "node_id": "n2",
+        "audioset_id": "/t/dd00134",
+        "audioset_name": "Car passing by",
+        "node_type": "visible_source",
+        "evidence": "a car visible on the street",
+        "visual_evidence_terms": ["car"]
       }
     ],
-    "caption": "a busy urban street with pedestrians and vehicles"
+    "caption": "The image shows an outdoor street scene with cars and pedestrians, where footsteps and a car passing by would plausibly be heard."
   }
 }
+
+Note how the caption's sound clause has exactly 2 sounds ("footsteps", "car sounds") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, the caption would end at "...pedestrians." with no "where..." clause needed for a single missing sound, or just "...where footsteps would plausibly be heard." for that one node alone.
 
 If there is no visually justified node, use: "nodes": []
 """.strip()
 
+    allowed_terms = format_allowed_visual_terms_for_prompt(allowed_visual_terms)
     allowed_nodes = format_allowed_audioset_nodes_for_prompt(allowed_audioset_nodes)
+    allowed_scenes = format_allowed_visual_terms_for_prompt(allowed_scene_labels)
     return f"""
 {base_prompt}
 
-Use ONLY AudioSet nodes from this allowed list:
+Allowed visual-term list for STAGE 1 (choose only from these):
+{allowed_terms}
+
+Allowed AudioSet node list for STAGE 2 (choose only from these):
 {allowed_nodes}
+
+Allowed scene-label list (choose only from these):
+{allowed_scenes}
 
 {json_schema_prompt}
 """.strip()
