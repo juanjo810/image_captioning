@@ -44,14 +44,10 @@ for CONFIG in "${CONFIGS[@]}"; do
 
   mkdir -p "$OUT_DIR"
 
-  for IMG in "$IMAGE_DIR"/*.{jpg,jpeg,png}; do
-    [ -e "$IMG" ] || continue
-
-    python -m scripts.run_grounding_dino_pipeline \
-      --image "$IMG" \
-      --detector "$DETECTOR" \
-      --scene-architecture "$SCENE_MODEL" \
-      --output-dir "$OUT_DIR" \
-      "${EXTRA_ARGS[@]}"
-  done
+  python -m scripts.run_grounding_dino_pipeline \
+    --image-dir "$IMAGE_DIR" \
+    --detector "$DETECTOR" \
+    --scene-architecture "$SCENE_MODEL" \
+    --output-dir "$OUT_DIR" \
+    "${EXTRA_ARGS[@]}"
 done

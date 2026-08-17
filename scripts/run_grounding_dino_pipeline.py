@@ -54,105 +54,14 @@ def make_demo_dummy_hoi() -> DummyHOIAdapter:
     )
 
 
-def main() -> None:
-    load_dotenv()
-    
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--image",
-        default="/home/jovyan/projects/data/test.jpg",
-    )
-    parser.add_argument(
-        "--detector",
-        choices=["grounding_dino", "owlv2"],
-        default="grounding_dino",
-        help="Open-vocabulary detector backend.",
-    )
-    parser.add_argument(
-        "--vocab-mode",
-        choices=["legacy", "audioset", "hybrid"],
-        default="legacy",
-        help="Detection vocabulary mode.",
-    )
-    parser.add_argument(
-        "--scene-architecture",
-        choices=["resnet50", "densenet161"],
-        default="resnet50",
-    )
-    parser.add_argument(
-        "--box-threshold",
-        type=float,
-        default=0.30,
-    )
-    parser.add_argument(
-        "--text-threshold",
-        type=float,
-        default=0.25,
-    )
-    parser.add_argument(
-        "--min-confidence",
-        type=float,
-        default=0.20,
-    )
-    parser.add_argument(
-        "--hoi",
-        choices=["none", "dummy", "upt"],
-        default="none",
-        help="HOI backend to use. 'dummy' is only for fusion smoke tests.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=None,
-        help="Directory where the generated JSON will be saved. If omitted, only prints to stdout.",
-    )
-
-    parser.add_argument(
-        "--output-name",
-        default=None,
-        help="Optional output JSON filename. Defaults to image stem + '.json'.",
-    )
-
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging.",
-    )
-
-    parser.add_argument(
-        "--legacy-visual-core",
-        action="store_true",
-        help="Uses the legacy visual core instead of the current audioset core"
-    )
-    
-    args = parser.parse_args()
-
-    base = Path("/home/jovyan/projects")
-    image_path = Path(args.image)
-
-    if args.detector == "grounding_dino":
-        detector = GroundingDINOAdapter(
-            config_path=base / "GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
-            checkpoint_path=base / "models/groundingdino_swint_ogc.pth",
-        )
-
-    elif args.detector == "owlv2":
-        detector = OWLv2Adapter(
-            model_id="google/owlv2-base-patch16-ensemble",
-            device="cuda",
-        )
-
-    else:
-        raise ValueError(f"Unsupported detector: {args.detector}")
-
-    scene_model = Places365Adapter(
-        architecture=args.scene_architecture,
-        categories_path=base / "places365/categories_places365.txt",
-        checkpoint_path=base
-        / "models"
-        / "places365"
-        / f"{args.scene_architecture}_places365.pth.tar",
-    )
+def process_image(
+    image_path: Path,
+    args: argparse.Namespace,
+    base: Path,
+    detector,
+    scene_model,
+) -> str:
+    """Run the full Workflow B pipeline for one image and return the output JSON text."""
 
     scene = scene_model.predict(
         image_path=image_path,
@@ -170,10 +79,10 @@ def main() -> None:
         batch_detections = detector.predict(
             image_path=image_path,
             prompt=batch["prompt"],
-            box_threshold=batch["box_threshold"],
-            text_threshold=batch["text_threshold"],
+            box_threshold=batch["box_threshold"] if args.box_threshold is None else args.box_threshold,
+            text_threshold=batch["text_threshold"] if args.text_threshold is None else args.text_threshold,
         )
-        
+
         if args.verbose:
             print(f"\nRAW DETECTIONS [{batch['name']}]")
             for d in batch_detections:
@@ -182,14 +91,14 @@ def main() -> None:
                     round(d.confidence, 3),
                     [round(x, 1) for x in d.bbox],
                 )
-        
+
 
         raw_detections.extend(batch_detections)
 
     detections = filter_detections(
         raw_detections,
         min_confidence=args.min_confidence,
-        nms_iou_threshold=0.85,
+        nms_iou_threshold=args.nms_iou_threshold,
         semantic_iou_threshold=0.30,
         semantic_containment_threshold=0.65,
     )
@@ -198,7 +107,7 @@ def main() -> None:
         print("FILTERED DETECTIONS")
         for d in detections:
             print(d.label, round(d.confidence, 3), [round(x, 1) for x in d.bbox])
-    
+
     with Image.open(image_path) as img:
         width, height = img.size
 
@@ -214,13 +123,13 @@ def main() -> None:
         )
     else:
         core, extended = project_detections_to_audioset(
-            detections=detections, 
-            scene_label=scene["label"], 
-            scene_confidence=scene["confidence"], 
-            width=width, 
-            height=height, 
+            detections=detections,
+            scene_label=scene["label"],
+            scene_confidence=scene["confidence"],
+            width=width,
+            height=height,
             image_id=image_path.stem,
-        )  
+        )
 
     if(args.legacy_visual_core):
         core.scene.indoor_outdoor = infer_indoor_outdoor_from_scene(scene["label"])
@@ -262,7 +171,7 @@ def main() -> None:
                     "human_bbox=", [round(x, 1) for x in h.human_bbox],
                     "object_bbox=", [round(x, 1) for x in h.object_bbox],
                 )
-    
+
         core.caption = build_caption(
             scene_label=core.scene.label,
             entities=core.entities,
@@ -273,21 +182,22 @@ def main() -> None:
         )
 
     metadata = {
+        "workflow": "B",
         "detector": args.detector,
         "vocab_mode": args.vocab_mode,
         "scene_model": scene,
-        "hoi_backend": args.hoi,
-        "raw_hoi_count": len(raw_hois),
-        "box_threshold": args.box_threshold,
-        "text_threshold": args.text_threshold,
+        "box_threshold": batch["box_threshold"] if args.box_threshold is None else args.box_threshold,
+        "text_threshold": batch["text_threshold"] if args.text_threshold is None else args.text_threshold,
         "min_confidence": args.min_confidence,
-    } if args.legacy_visual_core else {
-        "workflow": "B",
-        "detector": args.detector,
-        "vocab_mode": "audioset",
-        "audioset_vocab_version": "audioset_visual_vocab_v1",
-        "ontology_mode": "dag"
+        "nms_iou_threshold": args.nms_iou_threshold,
+        "n_raw_detections": len(raw_detections),
+        "n_filtered_detections": len(detections),
     }
+    if args.legacy_visual_core:
+        metadata["hoi_backend"]=args.hoi,
+        metadata["raw_hoi_count"]=len(raw_hois)
+    else:
+        metadata["ontology_mode"]="dag"
 
     output = {
         "core": core.model_dump(),
@@ -295,8 +205,10 @@ def main() -> None:
         "metadata": metadata
     }
 
-    output_text = json.dumps(output, indent=2, ensure_ascii=False)
+    return json.dumps(output, indent=2, ensure_ascii=False)
 
+
+def write_output(output_text: str, image_path: Path, args: argparse.Namespace) -> None:
     if args.output_dir is not None:
         output_dir = Path(args.output_dir)
         if(args.legacy_visual_core):
@@ -310,6 +222,147 @@ def main() -> None:
         print(f"[OK] JSON saved to: {output_path}")
     else:
         print(output_text)
+
+
+def main() -> None:
+    load_dotenv()
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--image",
+        default="/home/jovyan/projects/data/test.jpg",
+    )
+    parser.add_argument(
+        "--image-dir",
+        default=None,
+        help="Directory with input images. Processes every *.jpg in it instead of --image.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Only used with --image-dir: cap the number of images processed.",
+    )
+    parser.add_argument(
+        "--detector",
+        choices=["grounding_dino", "owlv2"],
+        default="grounding_dino",
+        help="Open-vocabulary detector backend.",
+    )
+    parser.add_argument(
+        "--vocab-mode",
+        choices=["legacy", "audioset", "hybrid"],
+        default="legacy",
+        help="Detection vocabulary mode.",
+    )
+    parser.add_argument(
+        "--scene-architecture",
+        choices=["resnet50", "densenet161"],
+        default="resnet50",
+    )
+    parser.add_argument(
+        "--box-threshold",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--nms-iou-threshold",
+        type=float,
+        default=0.7,
+    )
+    parser.add_argument(
+        "--text-threshold",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.30,
+    )
+    parser.add_argument(
+        "--hoi",
+        choices=["none", "dummy", "upt"],
+        default="none",
+        help="HOI backend to use. 'dummy' is only for fusion smoke tests.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory where the generated JSON will be saved. If omitted, only prints to stdout.",
+    )
+
+    parser.add_argument(
+        "--output-name",
+        default=None,
+        help="Optional output JSON filename. Defaults to image stem + '.json'.",
+    )
+
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging.",
+    )
+
+    parser.add_argument(
+        "--legacy-visual-core",
+        action="store_true",
+        help="Uses the legacy visual core instead of the current audioset core"
+    )
+    
+    args = parser.parse_args()
+
+    base = Path("/home/jovyan/projects")
+
+    if args.detector == "grounding_dino":
+        detector = GroundingDINOAdapter(
+            config_path=base / "GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
+            checkpoint_path=base / "models/groundingdino_swint_ogc.pth",
+        )
+
+    elif args.detector == "owlv2":
+        detector = OWLv2Adapter(
+            model_id="google/owlv2-base-patch16-ensemble",
+            device="cuda",
+        )
+
+    else:
+        raise ValueError(f"Unsupported detector: {args.detector}")
+
+    scene_model = Places365Adapter(
+        architecture=args.scene_architecture,
+        categories_path=base / "places365/categories_places365.txt",
+        checkpoint_path=base
+        / "models"
+        / "places365"
+        / f"{args.scene_architecture}_places365.pth.tar",
+    )
+
+    if args.image_dir:
+        if args.output_name:
+            print("[WARN] --output-name is ignored with --image-dir; using each image's stem instead.")
+            args.output_name = None
+
+        image_paths = sorted(Path(args.image_dir).glob("*.jpg"))
+
+        if args.limit is not None:
+            image_paths = image_paths[:args.limit]
+
+        for image_path in image_paths:
+            print(f"Processing {image_path.name}")
+
+            try:
+                output_text = process_image(image_path, args, base, detector, scene_model)
+                write_output(output_text, image_path, args)
+            except Exception as exc:
+                print(f"FAILED: {image_path.name} -> {exc}")
+
+    else:
+        image_path = Path(args.image)
+        output_text = process_image(image_path, args, base, detector, scene_model)
+        write_output(output_text, image_path, args)
+
 
 if __name__ == "__main__":
     main()

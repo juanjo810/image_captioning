@@ -56,8 +56,8 @@ def audioset_prompt_batches() -> tuple[AudioSetPromptBatch, ...]:
             {
                 "name": f"audioset_leaf_terms:{len(batches) + 1:02d}",
                 "terms": batch_terms,
-                "box_threshold": 0.25,
-                "text_threshold": 0.20,
+                "box_threshold": 0.35,
+                "text_threshold": 0.25,
             }
         )
 
