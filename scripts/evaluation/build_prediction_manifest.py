@@ -59,7 +59,9 @@ def summarize_json(json_path: Path) -> dict:
             "object_density_proxy": global_geometry.get("object_density_proxy", ""),
             "metadata_detector": metadata.get("detector", ""),
             "metadata_scene_model": metadata.get("scene_model", {}).get("architecture", ""),
-            "metadata_caption_mode": metadata.get("caption_mode", ""),   
+            "metadata_caption_mode": metadata.get("caption_mode", ""),
+            "metadata_call_mode": metadata.get("call_mode", ""),
+            "metadata_model_id": metadata.get("model_id", ""),
         }
 
     else:
@@ -86,6 +88,8 @@ def summarize_json(json_path: Path) -> dict:
             "metadata_detector": metadata.get("detector", ""),
             "metadata_scene_model": metadata.get("scene_model", {}).get("architecture", ""),
             "metadata_caption_mode": metadata.get("caption_mode", ""),
+            "metadata_call_mode": metadata.get("call_mode", ""),
+            "metadata_model_id": metadata.get("model_id", ""),
         }
 
 

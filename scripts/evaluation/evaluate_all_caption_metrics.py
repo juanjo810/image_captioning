@@ -12,7 +12,7 @@ import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
-from scripts.evaluation.vg_utils import canonicalize, load_alias_map
+from scripts.evaluation.vg_utils import canonicalize, is_audioset_core_json, load_alias_map
 
 
 FIELDNAMES = [
@@ -71,8 +71,14 @@ def load_vg_object_refs(path: Path) -> dict[str, set[str]]:
     return refs
 
 
-def load_json_entities(json_path: Path, object_alias: dict[str, str]) -> set[str]:
+def load_json_entities(json_path: Path, object_alias: dict[str, str]) -> set[str] | None:
+    """Returns None (not just an empty set) for AudioSetCoreJSON predictions,
+    which have no core.entities at all -- so callers can tell "no entities in
+    this schema" apart from "legacy schema, but happens to have zero entities"."""
     data = json.loads(json_path.read_text(encoding="utf-8"))
+
+    if is_audioset_core_json(data):
+        return None
 
     entities = data.get("core", {}).get("entities", [])
 
@@ -156,6 +162,7 @@ def compute_clipscore(
         images=[image],
         return_tensors="pt",
         padding=True,
+        truncation=True,
     ).to(device)
 
     outputs = model(**inputs)
@@ -246,8 +253,16 @@ def evaluate_chair_group(
     vg_refs: dict[str, set[str]],
     object_vocab: set[str],
     object_alias: dict[str, str],
-) -> dict[str, float | int]:
-    items = []
+) -> dict[str, float | int | str]:
+    """CHAIRi_VG is computed for every row (VG references are external ground
+    truth, independent of the prediction's own schema). CHAIRi_JSON only makes
+    sense for legacy CoreJSON predictions, which have core.entities -- for
+    AudioSetCoreJSON predictions load_json_entities() returns None per row, so
+    those rows are excluded from the JSON-hallucination average instead of
+    being counted as 100% hallucinated against an entities list that was never
+    there to begin with."""
+    vg_items = []
+    json_items = []
 
     for row in rows:
         image_id = row["image_id"]
@@ -261,48 +276,56 @@ def evaluate_chair_group(
         )
 
         vg_objects = vg_refs.get(image_id, set())
-        json_objects = load_json_entities(json_path, object_alias)
-
         chair_i_vg, halluc_vg, mentioned = chair_scores(
             caption_objects=caption_objects,
             reference_objects=vg_objects,
         )
-
-        chair_i_json, halluc_json, _ = chair_scores(
-            caption_objects=caption_objects,
-            reference_objects=json_objects,
-        )
-
-        items.append(
+        vg_items.append(
             {
                 "CHAIRi_VG": chair_i_vg,
-                "CHAIRi_JSON": chair_i_json,
                 "caption_objects_mentioned": mentioned,
                 "hallucinated_vg": halluc_vg,
-                "hallucinated_json": halluc_json,
             }
         )
 
-    if not items:
+        json_objects = load_json_entities(json_path, object_alias)
+        if json_objects is not None:
+            chair_i_json, halluc_json, _ = chair_scores(
+                caption_objects=caption_objects,
+                reference_objects=json_objects,
+            )
+            json_items.append(
+                {
+                    "CHAIRi_JSON": chair_i_json,
+                    "hallucinated_json": halluc_json,
+                }
+            )
+
+    if not vg_items:
         return {
             "CHAIRi_VG": 0.0,
-            "CHAIRi_JSON": 0.0,
+            "CHAIRi_JSON": "",
             "avg_caption_objects_mentioned": 0.0,
             "avg_hallucinated_vg": 0.0,
-            "avg_hallucinated_json": 0.0,
+            "avg_hallucinated_json": "",
             "n_chair": 0,
         }
 
-    n = len(items)
+    n = len(vg_items)
+    n_json = len(json_items)
 
     return {
-        "CHAIRi_VG": sum(x["CHAIRi_VG"] for x in items) / n,
-        "CHAIRi_JSON": sum(x["CHAIRi_JSON"] for x in items) / n,
-        "avg_caption_objects_mentioned": (
-            sum(x["caption_objects_mentioned"] for x in items) / n
+        "CHAIRi_VG": sum(x["CHAIRi_VG"] for x in vg_items) / n,
+        "CHAIRi_JSON": (
+            sum(x["CHAIRi_JSON"] for x in json_items) / n_json if json_items else ""
         ),
-        "avg_hallucinated_vg": sum(x["hallucinated_vg"] for x in items) / n,
-        "avg_hallucinated_json": sum(x["hallucinated_json"] for x in items) / n,
+        "avg_caption_objects_mentioned": (
+            sum(x["caption_objects_mentioned"] for x in vg_items) / n
+        ),
+        "avg_hallucinated_vg": sum(x["hallucinated_vg"] for x in vg_items) / n,
+        "avg_hallucinated_json": (
+            sum(x["hallucinated_json"] for x in json_items) / n_json if json_items else ""
+        ),
         "n_chair": n,
     }
 
