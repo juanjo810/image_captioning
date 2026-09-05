@@ -272,6 +272,18 @@ def normalize_audioset_core_payload(
     allowed_scene_labels_normalized = {normalize_label(label, default="") for label in allowed_scene_labels}
     allowed_visual_terms = set(audioset_detectable_terms())
 
+    # The terms the model itself declared as visible (stage 1 of the three-call
+    # flow, or the "visual_terms" scratch key of the single-call prompt). When
+    # present, node evidence must stay within this set -- not just the global
+    # detectable-term vocabulary -- so a node can't cite an object the model
+    # never actually claimed to see. If missing/empty, skip this extra check
+    # rather than rejecting every node's terms against an empty set.
+    declared_visual_terms = {
+        normalize_label(term, default="")
+        for term in (core.get("visual_terms") or [])
+        if isinstance(term, str) and normalize_label(term, default="")
+    }
+
     scene_label = normalize_label(raw_scene.get("label"), default="")
     if scene_label not in allowed_scene_labels_normalized:
         raise ValueError("Scene label not in allowed Places365 labels")
@@ -323,7 +335,11 @@ def normalize_audioset_core_payload(
             filtered_terms = []
             for term in raw_terms:
                 normalized_term = normalize_label(term, default="")
-                if normalized_term in allowed_visual_terms and normalized_term not in seen_terms:
+                if normalized_term not in allowed_visual_terms:
+                    continue
+                if declared_visual_terms and normalized_term not in declared_visual_terms:
+                    continue
+                if normalized_term not in seen_terms:
                     filtered_terms.append(normalized_term)
                     seen_terms.add(normalized_term)
             visual_evidence_terms = filtered_terms or None

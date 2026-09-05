@@ -75,6 +75,19 @@ def main() -> None:
         help="Uses the legacy visual core instead of the current audioset core."
     )
 
+    parser.add_argument(
+        "--call-mode",
+        choices=["single", "three"],
+        default="single",
+        help=(
+            "Only meaningful without --legacy-visual-core. 'single' (default) asks "
+            "for scene/visual_terms/nodes/caption in one VLM call (two stages inside "
+            "the same response). 'three' issues three independent VLM calls (scene+"
+            "visual_terms, then nodes, then caption), losing the autoregressive "
+            "conditioning between stages -- kept for experimentation/comparison."
+        ),
+    )
+
     args = parser.parse_args()
 
     model_id = args.model_id or "local-vlm"
@@ -102,6 +115,7 @@ def main() -> None:
                     max_new_tokens=args.max_new_tokens,
                     include_audioset_nodes=args.include_audioset_nodes,
                     use_legacy_core=args.legacy_visual_core,
+                    call_mode=args.call_mode,
                 )
             except Exception as exc:
                 print(f"FAILED: {image_path.name} -> {exc}")
@@ -113,6 +127,7 @@ def main() -> None:
             max_new_tokens=args.max_new_tokens,
             include_audioset_nodes=args.include_audioset_nodes,
             use_legacy_core=args.legacy_visual_core,
+            call_mode=args.call_mode,
         )
 
 

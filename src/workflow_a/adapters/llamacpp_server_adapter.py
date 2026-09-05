@@ -25,21 +25,21 @@ class LlamaCppServerAdapter(BaseVLM):
 
     def generate(
         self,
-        image_path: str | Path,
+        image_path: str | Path | None,
         prompt: str,
         max_new_tokens: int = 1024,
     ) -> str:
-        image_url = self._image_to_data_url(Path(image_path))
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        if image_path is not None:
+            image_url = self._image_to_data_url(Path(image_path))
+            content.append({"type": "image_url", "image_url": {"url": image_url}})
 
         payload = {
             "model": self.model_id,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ],
+                    "content": content,
                 }
             ],
             "max_tokens": max_new_tokens,

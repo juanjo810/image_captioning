@@ -18,6 +18,11 @@ CORE_KEYS = {
     "spatial_relations",
     "environment",
     "caption",
+    # audioset-core stage payloads (visual_terms/scene, nodes, caption) sent
+    # one at a time by the three-call flow — only "nodes"/"visual_terms" are
+    # new here, the rest overlap with the legacy keys above.
+    "nodes",
+    "visual_terms",
 }
 
 
@@ -84,7 +89,7 @@ def _select_best_object(objects: list[dict[str, Any]]) -> dict[str, Any] | None:
 
     best = scored[0]
 
-    if _score_object(best) <= 1:
+    if _score_object(best) < 1:
         return None
 
     return best
