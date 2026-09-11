@@ -249,14 +249,20 @@ def family_evidence_score(
     return supported / total if total > 0 else 0.0
 
 
-def scene_confidence(pred_json: dict[str, Any]) -> float:
+def scene_confidence(pred_json: dict[str, Any]) -> float | str:
+    """Workflow B always fills scene.confidence with the real Places365 score;
+    Workflow A deliberately never does (asking the VLM for a confidence
+    number it would be inventing, not measuring), so this is
+    genuinely absent rather than zero. Reported as "n/a" -- not "" and not
+    0.0 -- so it reads unambiguously as "not applicable" rather than being
+    mistaken for a missing/empty value or a real zero confidence."""
     confidence = pred_json.get("core", {}).get("scene", {}).get("confidence")
     if confidence is None:
-        return ""
+        return "n/a"
     try:
         return float(confidence)
     except (TypeError, ValueError):
-        return ""
+        return "n/a"
 
 
 def compute_image_metrics(
@@ -330,7 +336,7 @@ def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
 
         for key in metric_keys:
-            values = [item[key] for item in items if item[key] != ""]
+            values = [item[key] for item in items if item[key] not in ("", "n/a")]
             result[key] = sum(float(v) for v in values) / len(values) if values else ""
 
         output.append(result)
