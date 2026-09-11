@@ -13,6 +13,8 @@ from src.workflow_a.parser import extract_json_block
 from src.workflow_a.prompt_builder import (
     build_workflow_a_legacy_visual_prompt,
     build_workflow_a_audioset_core_prompt,
+    build_workflow_a_audioset_core_free_scene_prompt,
+    build_workflow_a_scene_mapping_prompt,
     build_workflow_a_audioset_core_scene_prompt,
     build_workflow_a_audioset_core_nodes_prompt,
     build_workflow_a_audioset_core_caption_prompt,
@@ -39,6 +41,21 @@ class _ThreeCallStages:
     nodes: list[dict[str, Any]]
 
 
+@dataclass
+class _TwoCallStages:
+    """Intermediate state threaded out of the two-call flow (call_mode='two')
+    and into run()'s parse/validate step. phase2_raw is intentionally left
+    unparsed here -- that happens inside run()'s try block, same as
+    _ThreeCallStages.stage3_raw, so a malformed phase-2 response still lands
+    in failed/ instead of raising uncaught."""
+
+    raw_output: str
+    phase2_raw: str
+    visual_terms: list[str]
+    nodes: list[dict[str, Any]]
+    caption: str | None
+
+
 class WorkflowAPipeline:
     def __init__(self, vlm_adapter) -> None:
         self.vlm = vlm_adapter
@@ -53,8 +70,8 @@ class WorkflowAPipeline:
         use_legacy_core: bool = False,
         call_mode: str = "single",
     ) -> dict[str, Any]:
-        if call_mode not in ("single", "three"):
-            raise ValueError(f"call_mode must be 'single' or 'three', got {call_mode!r}")
+        if call_mode not in ("single", "three", "two"):
+            raise ValueError(f"call_mode must be 'single', 'three' or 'two', got {call_mode!r}")
 
         image_path = Path(image_path)
         output_dir = Path(output_dir) / "legacy" if use_legacy_core else Path(output_dir)
@@ -63,6 +80,7 @@ class WorkflowAPipeline:
         allowed_audioset_nodes: tuple = ()
         allowed_scene_labels: tuple = ()
         three_call_stages: _ThreeCallStages | None = None
+        two_call_stages: _TwoCallStages | None = None
 
         if use_legacy_core:
             allowed_audioset_nodes = default_allowed_audioset_nodes() if include_audioset_nodes else ()
@@ -79,18 +97,26 @@ class WorkflowAPipeline:
                     image_path, allowed_audioset_nodes, allowed_visual_terms,
                     allowed_scene_labels, max_new_tokens,
                 )
-            else:
+            elif call_mode == "three":
                 three_call_stages = self._generate_three_call(
                     image_path, allowed_audioset_nodes, allowed_visual_terms,
                     allowed_scene_labels, max_new_tokens,
                 )
                 raw_output = three_call_stages.raw_output
+            else:
+                two_call_stages = self._generate_two_call(
+                    image_path, allowed_audioset_nodes, allowed_visual_terms,
+                    allowed_scene_labels, max_new_tokens,
+                )
+                raw_output = two_call_stages.raw_output
 
         raw_path = dirs["raw"] / f"{image_path.stem}.txt"
         raw_path.write_text(raw_output, encoding="utf-8")
 
         try:
-            parsed = self._build_parsed_payload(image_path.stem, raw_output, three_call_stages)
+            parsed = self._build_parsed_payload(
+                image_path.stem, raw_output, three_call_stages, two_call_stages,
+            )
             core, acoustic_semantics = self._validate(
                 parsed,
                 image_id=image_path.stem,
@@ -158,7 +184,7 @@ class WorkflowAPipeline:
         1's visual_terms) -> stage 3 (caption, text-only). Each stage is an
         independent VLM call, so -- unlike the single-call flow -- there is no
         autoregressive conditioning keeping a later stage consistent with an
-        earlier one; see CLAUDE.md for why that matters here."""
+        earlier one."""
         stage1_prompt = build_workflow_a_audioset_core_scene_prompt(
             allowed_visual_terms=allowed_visual_terms,
             allowed_scene_labels=allowed_scene_labels,
@@ -213,14 +239,99 @@ class WorkflowAPipeline:
         )
 
 
+    def _generate_two_call(
+        self,
+        image_path,
+        allowed_audioset_nodes,
+        allowed_visual_terms,
+        allowed_scene_labels,
+        max_new_tokens,
+    ) -> _TwoCallStages:
+        """Phase 1 (free scene description + visual_terms + nodes + caption,
+        image attached, one call) -> phase 2 (text-only call mapping that
+        free-form scene description onto the Places365 allow-list). Unlike
+        'three', only the scene label itself is deferred to a second call --
+        visual_terms/nodes/caption are still decided together in one response,
+        same as 'single'."""
+        phase1_prompt = build_workflow_a_audioset_core_free_scene_prompt(
+            allowed_audioset_nodes=allowed_audioset_nodes,
+            allowed_visual_terms=allowed_visual_terms,
+        )
+        phase1_raw = self.vlm.generate(
+            image_path=image_path, prompt=phase1_prompt, max_new_tokens=max_new_tokens
+        )
+        phase1_parsed = extract_json_block(phase1_raw)
+        core1 = (
+            phase1_parsed.get("core")
+            if isinstance(phase1_parsed.get("core"), dict)
+            else phase1_parsed
+        )
+        visual_terms = [
+            term for term in (core1.get("visual_terms") or [])
+            if isinstance(term, str)
+        ]
+        free_scene = (
+            core1.get("scene")
+            if isinstance(core1.get("scene"), dict)
+            else {}
+        )
+        nodes = (
+            core1.get("nodes")
+            if isinstance(core1.get("nodes"), list)
+            else []
+        )
+        caption = core1.get("caption")
+
+        # Everything phase 2 needs (the free-form scene description and the
+        # visual_terms already committed to) is passed in as text below, so
+        # no image is attached -- this call is a lookup against the
+        # Places365 allow-list, not a fresh look at the image.
+        phase2_prompt = build_workflow_a_scene_mapping_prompt(
+            free_scene=free_scene, visual_terms=visual_terms,
+            allowed_scene_labels=allowed_scene_labels,
+        )
+        phase2_raw = self.vlm.generate(
+            image_path=None, prompt=phase2_prompt, max_new_tokens=max_new_tokens
+        )
+
+        raw_output = (
+            "=== PHASE 1: free scene + visual_terms + nodes + caption ===\n" + phase1_raw
+            + "\n\n=== PHASE 1 SCENE (free-form, parsed) ===\n"
+            + json.dumps(free_scene, ensure_ascii=False)
+            + "\n\n=== PHASE 2: scene mapping ===\n" + phase2_raw
+        )
+        return _TwoCallStages(
+            raw_output=raw_output, phase2_raw=phase2_raw,
+            visual_terms=visual_terms, nodes=nodes, caption=caption,
+        )
+
+
     # -- parsing / validation ---------------------------------------------------
 
     @staticmethod
     def _build_parsed_payload(
-        image_id: str, 
-        raw_output: str, 
+        image_id: str,
+        raw_output: str,
         three_call_stages: _ThreeCallStages | None,
+        two_call_stages: _TwoCallStages | None = None,
     ) -> dict[str, Any]:
+        if two_call_stages is not None:
+            phase2_parsed = extract_json_block(two_call_stages.phase2_raw)
+            scene = (
+                phase2_parsed.get("scene")
+                if isinstance(phase2_parsed.get("scene"), dict)
+                else {}
+            )
+            return {
+                "core": {
+                    "image_id": image_id,
+                    "visual_terms": two_call_stages.visual_terms,
+                    "scene": scene,
+                    "nodes": two_call_stages.nodes,
+                    "caption": two_call_stages.caption,
+                }
+            }
+
         if three_call_stages is None:
             return extract_json_block(raw_output)
 
@@ -311,11 +422,11 @@ class WorkflowAPipeline:
                 else "workflow_a_legacy_visual_core_v1"
             )
         else:
-            prompt_version = (
-                "workflow_a_audioset_core_v1"
-                if call_mode == "single"
-                else "workflow_a_audioset_core_three_call_v1"
-            )
+            prompt_version = {
+                "single": "workflow_a_audioset_core_v1",
+                "three": "workflow_a_audioset_core_three_call_v1",
+                "two": "workflow_a_audioset_core_two_call_v1",
+            }[call_mode]
 
         metadata = {
             "workflow": "A",

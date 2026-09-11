@@ -25,8 +25,6 @@ AudioSetInferenceType = Literal[
 AudioSetNodeType = Literal[
     "visible_source",
     "visible_action",
-    "scene_affordance",
-    "uncertain",
 ]
 
 

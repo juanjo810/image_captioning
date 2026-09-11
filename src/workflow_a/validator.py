@@ -33,6 +33,15 @@ ACOUSTIC_INFERENCE_TYPES = {
     "scene_affordance",
     "uncertain",
 }
+# AudioSetCoreJSON's node_type (single/three/two call_mode) is stricter than
+# legacy AcousticSemantics.inference_type above: no "scene_affordance" (was
+# letting a node skip visual_evidence_terms) and no "uncertain" (the weakest
+# evidentiary bucket, most prone to ungrounded id/evidence pairings). Every
+# audioset-core node must name a specific visible object or action.
+AUDIOSET_CORE_NODE_TYPES = {
+    "visible_source",
+    "visible_action",
+}
 
 
 def normalize_label(value: Any, default: str = "unknown") -> str:
@@ -324,9 +333,9 @@ def normalize_audioset_core_payload(
         if not evidence:
             continue
 
-        node_type = str(raw_node.get("node_type") or "uncertain").strip().lower()
-        if node_type not in ACOUSTIC_INFERENCE_TYPES:
-            node_type = "uncertain"
+        node_type = str(raw_node.get("node_type") or "visible_source").strip().lower()
+        if node_type not in AUDIOSET_CORE_NODE_TYPES:
+            node_type = "visible_source"
 
         raw_terms = raw_node.get("visual_evidence_terms")
         visual_evidence_terms = None
@@ -343,6 +352,13 @@ def normalize_audioset_core_payload(
                     filtered_terms.append(normalized_term)
                     seen_terms.add(normalized_term)
             visual_evidence_terms = filtered_terms or None
+
+        # No node_type is exempt from having evidence anymore (scene_affordance
+        # was the only exemption and it's gone) -- a node that ends up with no
+        # valid visual_evidence_terms after filtering is dropped entirely,
+        # rather than kept with empty evidence.
+        if visual_evidence_terms is None:
+            continue
 
         normalized_nodes.append({
             "node_id": new_id,

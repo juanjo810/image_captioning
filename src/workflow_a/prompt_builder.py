@@ -110,13 +110,12 @@ Build the JSON in two stages, both inside this single response.
 
 STAGE 1 -- "visual_terms": list every visual term you can clearly see in the image, choosing ONLY from the allowed visual-term list below. Do not invent a term that is not in that list, and do not list a term you cannot actually see.
 
-STAGE 2 -- "nodes": for each AudioSet node you infer, derive it FROM the terms you just wrote in "visual_terms". Every node's "visual_evidence_terms" must be a subset of "visual_terms" — never introduce a term there that is not already in "visual_terms". The only exception is a "scene_affordance" node (ambient sound implied by the scene type itself, not by one specific visible object): for that node type you may omit "visual_evidence_terms" entirely.
+STAGE 2 -- "nodes": for each AudioSet node you infer, derive it FROM the terms you just wrote in "visual_terms". Every node's "visual_evidence_terms" must be a non-empty subset of "visual_terms" — never introduce a term there that is not already in "visual_terms", and never leave it empty: every node must cite at least one visual term that grounds it, with no exceptions.
 
-Allowed node_type values: visible_source, visible_action, scene_affordance, uncertain.
+Allowed node_type values: visible_source, visible_action.
 - visible_source: the sound-producing object/animal/instrument itself is visibly present (e.g. a dog, a guitar, a car engine).
 - visible_action: a visible action implies a sound (e.g. walking, clapping, a door closing).
-- scene_affordance: the scene type plausibly implies ambient sound even without a specific visible source (e.g. an urban street implies traffic ambience).
-- uncertain: visual evidence suggests a possible sound but is not conclusive.
+Only propose a node when you can point to the specific visible object or action that produces the sound. Do not propose a node for ambient/background sound implied only by the scene type in general, and do not propose a node you are not reasonably sure about.
 
 Rules:
 - Every node must be supported by explicit visual evidence described in "evidence".
@@ -127,7 +126,7 @@ Rules:
 - Do not invent audioset_id or audioset_name values that are not in the allowed AudioSet list.
 - node_id values must be unique and sequential: n1, n2, n3, and so on.
 - If no AudioSet node is visually justified, return an empty "nodes" array.
-- The scene's "label" MUST be copied EXACTLY, character-for-character, from one entry of the allowed scene-label list below -- never write a generic word of your own (like "room", "indoor", "scene", "place", "area") even if it feels like a reasonable summary. If your first instinct is a generic word, that word is NOT a valid label: go back to the list and find the specific entry that best matches what you were about to say (e.g. instead of "room" or "indoor", scan the list for the specific kind of room you actually see, such as "office", "computer room", "home office", "bedroom", "classroom", etc.).
+- The scene's "label" MUST be copied EXACTLY, character-for-character, from one entry of the allowed scene-label list below -- never write a generic word of your own (like "room", "indoor", "scene", "place", "area") even if it feels like a reasonable summary. If your first instinct is a generic word, that word is NOT a valid label: go back to the list below and find the specific, most precise entry that actually matches what you see -- scan the full list rather than settling for the first generic word that comes to mind.
 - "indoor_outdoor" must be one of: indoor, outdoor, mixed, unknown.
 - Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
 
@@ -173,7 +172,7 @@ Note how the caption's sound clause has exactly 2 sounds ("footsteps", "car soun
 
 If there is no visually justified node, use: "nodes": []
 
-Bad example (do NOT do this): {"label": "room", "indoor_outdoor": "indoor"} or {"label": "indoor", "indoor_outdoor": "indoor"} -- neither "room" nor "indoor" is a literal entry in the allowed scene-label list, even though a room is visible. The correct label is whichever specific entry from that list (e.g. "office", "computer room", "bedroom") actually matches the image.
+Bad example (do NOT do this): {"label": "room", "indoor_outdoor": "indoor"} or {"label": "indoor", "indoor_outdoor": "indoor"} -- neither "room" nor "indoor" is a literal entry in the allowed scene-label list, even though a room is visible. The correct label is whichever specific entry from that list actually matches the image -- read the full list below rather than guessing.
 """.strip()
 
     allowed_terms = format_allowed_visual_terms_for_prompt(allowed_visual_terms)
@@ -195,6 +194,165 @@ Allowed scene-label list (choose only from these):
 """.strip()
 
 
+def build_workflow_a_audioset_core_free_scene_prompt(
+    *,
+    allowed_audioset_nodes: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    allowed_visual_terms: tuple[str, ...] | list[str] = (),
+) -> str:
+    """Phase 1 of the two-call audioset-core flow (call_mode='two'): same
+    visual_terms -> nodes -> caption flow as the single-call prompt, but the
+    scene is described freely in the model's own words instead of being
+    constrained to the Places365 allow-list -- that constraint is deferred to
+    build_workflow_a_scene_mapping_prompt (phase 2), a separate text-only call
+    that maps this free description onto the allow-list. Splitting it out
+    like this avoids anchoring the model on a fixed label list while it is
+    still looking at the image, which was producing very low scene-label
+    diversity in call_mode='single'/'three'."""
+    base_prompt = """
+Return ONLY one valid JSON object. No markdown. No explanations.
+The JSON must start with { and end with }.
+
+Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
+This section is NOT actual audio recognition. It contains acoustically plausible AudioSet ontology nodes inferred only from explicit visual evidence in the image.
+
+Build the JSON in two stages, both inside this single response.
+
+STAGE 1 -- "visual_terms": list every visual term you can clearly see in the image, choosing ONLY from the allowed visual-term list below. Do not invent a term that is not in that list, and do not list a term you cannot actually see.
+
+STAGE 2 -- "nodes": for each AudioSet node you infer, derive it FROM the terms you just wrote in "visual_terms". Every node's "visual_evidence_terms" must be a non-empty subset of "visual_terms" — never introduce a term there that is not already in "visual_terms", and never leave it empty: every node must cite at least one visual term that grounds it, with no exceptions.
+
+Allowed node_type values: visible_source, visible_action.
+- visible_source: the sound-producing object/animal/instrument itself is visibly present (e.g. a dog, a guitar, a car engine).
+- visible_action: a visible action implies a sound (e.g. walking, clapping, a door closing).
+Only propose a node when you can point to the specific visible object or action that produces the sound. Do not propose a node for ambient/background sound implied only by the scene type in general, and do not propose a node you are not reasonably sure about.
+
+Rules:
+- Every node must be supported by explicit visual evidence described in "evidence".
+- Do not infer speech merely from a visible person.
+- Do not infer music unless instruments, performers, dance, a stage, or other explicit musical context are visible.
+- Do not infer environmental or mechanical sounds unless there are clear visible cues for them.
+- Each node's audioset_id and audioset_name must come from the SAME entry in the allowed AudioSet list below — never mix an id from one entry with the name of another.
+- Do not invent audioset_id or audioset_name values that are not in the allowed AudioSet list.
+- node_id values must be unique and sequential: n1, n2, n3, and so on.
+- If no AudioSet node is visually justified, return an empty "nodes" array.
+- Describe the scene type in "scene.label" using your own words, in 1 to 3 words (e.g. "busy kitchen", "mountain trail", "small office"). Do not try to match any fixed taxonomy here -- a later step will map your description onto the official scene list.
+- "indoor_outdoor" must be one of: indoor, outdoor, mixed, unknown.
+- Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
+
+CAPTION RULE (strict):
+Write "caption" LAST, after you have finalized "nodes". Structure it as exactly two clauses:
+"The image shows <scene description> with <the concrete visual objects from visual_terms>, where <sounds> would plausibly be heard."
+The <sounds> clause must name ONE short sound phrase PER NODE in "nodes", IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name you already wrote above. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, drop the "where..." clause entirely and just describe the visible objects. Before writing the caption, count your nodes and count the sounds you are about to mention — the two counts must match exactly.
+""".strip()
+
+    json_schema_prompt = """
+Return exactly this schema:
+{
+  "core": {
+    "image_id": "unknown",
+    "visual_terms": ["person", "car", "dog"],
+    "scene": {
+      "label": "busy urban street",
+      "indoor_outdoor": "outdoor"
+    },
+    "nodes": [
+      {
+        "node_id": "n1",
+        "audioset_id": "/m/07qv_x0",
+        "audioset_name": "Walk, footsteps",
+        "node_type": "visible_action",
+        "evidence": "people walking on the pavement",
+        "visual_evidence_terms": ["person"]
+      },
+      {
+        "node_id": "n2",
+        "audioset_id": "/t/dd00134",
+        "audioset_name": "Car passing by",
+        "node_type": "visible_source",
+        "evidence": "a car visible on the street",
+        "visual_evidence_terms": ["car"]
+      }
+    ],
+    "caption": "The image shows an outdoor street scene with cars and pedestrians, where footsteps and a car passing by would plausibly be heard."
+  }
+}
+
+Note how the caption's sound clause has exactly 2 sounds ("footsteps", "car sounds") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, the caption would end at "...pedestrians." with no "where..." clause needed for a single missing sound, or just "...where footsteps would plausibly be heard." for that one node alone.
+
+If there is no visually justified node, use: "nodes": []
+""".strip()
+
+    allowed_terms = format_allowed_visual_terms_for_prompt(allowed_visual_terms)
+    allowed_nodes = format_allowed_audioset_nodes_for_prompt(allowed_audioset_nodes)
+    return f"""
+{base_prompt}
+
+Allowed visual-term list for STAGE 1 (choose only from these):
+{allowed_terms}
+
+Allowed AudioSet node list for STAGE 2 (choose only from these):
+{allowed_nodes}
+
+{json_schema_prompt}
+""".strip()
+
+
+def build_workflow_a_scene_mapping_prompt(
+    *,
+    free_scene: dict[str, Any],
+    visual_terms: list[str],
+    allowed_scene_labels: tuple[str, ...] | list[str] = (),
+) -> str:
+    """Phase 2 of the two-call audioset-core flow (call_mode='two'): a
+    text-only call (no image attached -- everything it needs was already
+    decided by phase 1) that maps the free-form scene description from phase
+    1 onto the official Places365 allow-list. Deliberately kept free of
+    example labels: the tutor's explicit feedback on a related idea
+    (randomizing which example labels appear in the prompt) was that any
+    concrete example labels bias the model toward picking those specific
+    labels instead of actually reading the list -- so this prompt names none."""
+    base_prompt = """
+Return ONLY one valid JSON object. No markdown. No explanations.
+The JSON must start with { and end with }.
+
+Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
+
+You are given a free-form scene description and a list of visual terms already identified in an image by an earlier step that did look at the image. Your task now is purely textual: map that description onto the single closest-matching entry from the allowed scene-label list below.
+
+Rules:
+- The "label" MUST be copied EXACTLY, character-for-character, from one entry of the allowed scene-label list below -- never write a generic word, a paraphrase, or the free-form description itself unless it happens to already be a literal entry in the list.
+- Choose the entry that best matches the free-form scene description and visual terms given below, even if no entry is a perfect match -- pick the closest one.
+- "indoor_outdoor" must be one of: indoor, outdoor, mixed, unknown.
+- Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
+""".strip()
+
+    json_schema_prompt = """
+Return exactly this schema:
+{
+  "scene": {
+    "label": "one exact entry from the allowed scene-label list",
+    "indoor_outdoor": "indoor"
+  }
+}
+""".strip()
+
+    allowed_scenes = format_allowed_visual_terms_for_prompt(allowed_scene_labels)
+    return f"""
+{base_prompt}
+
+Allowed scene-label list (choose only from these):
+{allowed_scenes}
+
+{json_schema_prompt}
+
+Free-form scene description from the earlier step:
+{free_scene}
+
+Visual terms already identified:
+{visual_terms}
+""".strip()
+
+
 def build_workflow_a_audioset_core_scene_prompt(
     *,
     allowed_visual_terms: tuple[str, ...] | list[str] = (),
@@ -209,7 +367,7 @@ This section is NOT actual audio recognition. It contains acoustically plausible
 
 Rules:
 - "visual_terms": list every visual term you can clearly see in the image, choosing ONLY from the allowed visual-term list below. Do not invent a term that is not in that list, and do not list a term you cannot actually see.
-- The scene's "label" MUST be copied EXACTLY, character-for-character, from one entry of the allowed scene-label list below -- never write a generic word of your own (like "room", "scene", "place", "area", "indoors") even if it feels like a reasonable summary. If your first instinct is a generic word, that word is NOT a valid label: go back to the list and find the specific entry that best matches what you were about to say (e.g. instead of "room", scan the list for the specific kind of room you actually see, such as "office", "computer room", "home office", "bedroom", "classroom", etc.).
+- The scene's "label" MUST be copied EXACTLY, character-for-character, from one entry of the allowed scene-label list below -- never write a generic word of your own (like "room", "scene", "place", "area", "indoors") even if it feels like a reasonable summary. If your first instinct is a generic word, that word is NOT a valid label: go back to the list below and find the specific, most precise entry that actually matches what you see -- scan the full list rather than settling for the first generic word that comes to mind.
 - "indoor_outdoor" must be one of: indoor, outdoor, mixed, unknown.
 - Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
 """.strip()
@@ -225,7 +383,7 @@ Return exactly this schema:
   }
 }
 
-Bad example (do NOT do this): {"label": "room", "indoor_outdoor": "indoor"} -- "room" is not a literal entry in the allowed scene-label list, even though a room is visible. The correct label is whichever specific entry from that list (e.g. "office", "computer room", "bedroom") actually matches the image.
+Bad example (do NOT do this): {"label": "room", "indoor_outdoor": "indoor"} -- "room" is not a literal entry in the allowed scene-label list, even though a room is visible. The correct label is whichever specific entry from that list actually matches the image -- read the full list below rather than guessing.
 """.strip()
 
     allowed_terms = format_allowed_visual_terms_for_prompt(allowed_visual_terms)
@@ -258,15 +416,14 @@ The JSON must start with { and end with }.
 Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
 This section is NOT actual audio recognition. It contains acoustically plausible AudioSet ontology nodes inferred only from explicit visual evidence in the image.
 
-Allowed node_type values: visible_source, visible_action, scene_affordance, uncertain.
+Allowed node_type values: visible_source, visible_action.
 - visible_source: the sound-producing object/animal/instrument itself is visibly present (e.g. a dog, a guitar, a car engine).
 - visible_action: a visible action implies a sound (e.g. walking, clapping, a door closing).
-- scene_affordance: the scene type plausibly implies ambient sound even without a specific visible source (e.g. an urban street implies traffic ambience).
-- uncertain: visual evidence suggests a possible sound but is not conclusive.
+Only propose a node when you can point to the specific visible object or action that produces the sound. Do not propose a node for ambient/background sound implied only by the scene type in general, and do not propose a node you are not reasonably sure about.
 
 Rules:
 - An image is attached so you can look closely and confirm details (e.g. what shape an object has, whether it's really the sound source you think it is) — but "visual-terms to infer from" below is the complete, closed list of objects you are allowed to write about here. You may look at the image, but only write down objects from that list: if you notice something in the image that is not in that list, ignore it for this step, do not name it, describe it, or base a node on it, even if it feels like a natural thing to see in this kind of scene.
-- "nodes": for each AudioSet node you infer, derive it FROM the terms in "visual-terms to infer from". Every node's "visual_evidence_terms" must be a subset of that list — never introduce a term there that is not already in it. The only exception is a "scene_affordance" node (ambient sound implied by the scene type itself, not by one specific visible object): for that node type you may omit "visual_evidence_terms" entirely.
+- "nodes": for each AudioSet node you infer, derive it FROM the terms in "visual-terms to infer from". Every node's "visual_evidence_terms" must be a non-empty subset of that list — never introduce a term there that is not already in it, and never leave it empty: every node must cite at least one visual term that grounds it, with no exceptions.
 - The "evidence" text itself must also only reference objects from "visual-terms to infer from" — do not mention an object in "evidence" that is not in that list, even in passing.
 - Every node must be supported by explicit visual evidence described in "evidence".
 - Do not infer speech merely from a visible person.

@@ -111,7 +111,7 @@ def main() -> None:
 
     parser.add_argument(
         "--call-mode",
-        choices=["single", "three"],
+        choices=["single", "three", "two"],
         default="single",
         help="Only meaningful without --legacy-visual-core. See run_workflow_a.py --help.",
     )

@@ -77,14 +77,20 @@ def main() -> None:
 
     parser.add_argument(
         "--call-mode",
-        choices=["single", "three"],
+        choices=["single", "three", "two"],
         default="single",
         help=(
             "Only meaningful without --legacy-visual-core. 'single' (default) asks "
             "for scene/visual_terms/nodes/caption in one VLM call (two stages inside "
             "the same response). 'three' issues three independent VLM calls (scene+"
             "visual_terms, then nodes, then caption), losing the autoregressive "
-            "conditioning between stages -- kept for experimentation/comparison."
+            "conditioning between stages -- kept for experimentation/comparison. "
+            "'two' issues two calls: phase 1 (image attached) asks for a free-form "
+            "scene description + visual_terms/nodes/caption in one response, then "
+            "phase 2 (text-only) maps that free description onto the Places365 "
+            "allow-list -- meant to fix low scene-label diversity/invalid labels "
+            "from giving the model the allow-list while it's still looking at the "
+            "image."
         ),
     )
 
