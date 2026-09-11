@@ -6,6 +6,8 @@ import torch
 from PIL import Image
 from torchvision import models, transforms
 
+from src.workflow_b.vocabularies import normalize_scene_label
+
 
 SUPPORTED_ARCHS = {
     "resnet50": "resnet50_places365.pth.tar",
@@ -53,7 +55,7 @@ class Places365Adapter:
 
         for line in path.read_text().splitlines():
             raw = line.strip().split(" ")[0]
-            label = raw.split("/")[-1].replace("_", " ")
+            label = normalize_scene_label(raw.lstrip("/").split("/", 1)[1])
             labels.append(label)
 
         return labels
