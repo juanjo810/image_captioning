@@ -2,7 +2,23 @@
 
 Problemas comunes y soluciones rápidas.
 
-## llama.cpp Server No Está Corriendo
+## `ModuleNotFoundError: No module named 'src.workflow_a'`
+
+Estás ejecutando el script por ruta:
+
+```bash
+python scripts/run_workflow_a.py ...   # falla
+```
+
+Python pone `scripts/` en el path, no la raíz del repo. Ejecuta siempre como módulo, desde la raíz:
+
+```bash
+python -m scripts.run_workflow_a ...
+```
+
+Aplica a todos los scripts, incluidos los de `scripts/evaluation/`.
+
+## llama.cpp server no está corriendo
 
 Síntoma:
 
@@ -12,33 +28,21 @@ Could not connect to llama.cpp server
 
 Soluciones:
 
-- arranca el servidor llama.cpp con soporte multimodal
+- arranca el servidor llama.cpp con soporte multimodal (modelo + `mmproj`)
 - confirma que expone `/v1/chat/completions`
-- revisa `--server-url`
+- revisa `--server-url` (default `http://localhost:8889`)
 
-## URL Incorrecta
+Si el servidor corre en **otro contenedor**, `localhost` apunta al contenedor equivocado: usa la IP del gateway del host, por ejemplo `--server-url http://172.17.0.1:8889`.
 
-El default es:
+## No encuentro `--temperature` ni `--model` en Workflow A
 
-```text
-http://localhost:8889
-```
+No existen. El único backend es llama.cpp (`Gemma4Adapter` fue eliminado) y el adaptador envía solo `model`, `messages` y `max_tokens`. La temperatura, el top-p y el resto del sampling se configuran al lanzar `llama-server`; si la calidad del JSON es errática, ahí es donde hay que tocar.
 
-Si tu servidor está en otro puerto:
+`--model-id` sí existe, pero solo nombra el modelo en la petición y en `metadata`.
 
-```bash
-python scripts/run_workflow_a.py \
-  --image data/images/example.jpg \
-  --server-url http://localhost:<port>
-```
+## JSON inválido del VLM
 
-## JSON Inválido del VLM
-
-Síntomas:
-
-- falla de parsing
-- error Pydantic
-- archivo en `failed/`
+Síntomas: fallo de parsing, error Pydantic, fichero en `failed/`.
 
 Revisa:
 
@@ -49,9 +53,14 @@ outputs/workflow_a/failed/<image_id>.json
 
 Prueba:
 
-- `--temperature 0.0`
-- aumentar `--max-new-tokens`
-- usar un modelo multimodal más obediente al JSON
+- subir `--max-new-tokens` (el JSON puede estar truncado)
+- bajar la temperatura **en el servidor**
+- usar un modelo multimodal más obediente al formato JSON
+- para lotes, `run_workflow_a_with_retries` reintenta solo las imágenes fallidas
+
+## `core.nodes` sale vacío, pero la caption menciona sonidos
+
+Comportamiento conocido, no un fallo de instalación. El validador descarta los nodos que se quedan sin `visual_evidence_terms` válidos, y la caption se escribió antes de esa validación, en la misma llamada. Revisa los `visual_terms` declarados en `raw/` para ver qué se filtró.
 
 ## Falta GroundingDINO
 
@@ -61,94 +70,77 @@ Síntoma:
 ModuleNotFoundError: No module named 'groundingdino'
 ```
 
-Solución:
+Solución: instala el repo GroundingDINO en el entorno `imagecap-b`, verifica que el import funciona y confirma las rutas que espera `scripts/run_grounding_dino_pipeline.py`.
 
-- instala el repo GroundingDINO en el entorno
-- verifica que el import funcione
-- confirma las rutas esperadas por `scripts/run_grounding_dino_pipeline.py`
-
-## Falta Checkpoint
-
-GroundingDINO espera:
+## Faltan checkpoints
 
 ```text
 /home/jovyan/projects/models/groundingdino_swint_ogc.pth
-```
-
-Places365 espera:
-
-```text
 /home/jovyan/projects/models/places365/resnet50_places365.pth.tar
-```
-
-UPT espera:
-
-```text
 /home/jovyan/projects/models/upt/upt-r50-hicodet.pt
 ```
 
-Si solo quieres probar el detector sin HOI, usa `--hoi none`.
+UPT solo hace falta con `--legacy-visual-core --hoi upt`. El default es `--hoi none`, así que para probar el detector no necesitas UPT.
 
-## Hugging Face Download Issues
+## Pocas o ninguna detección en Workflow B
 
-OWLv2 y Gemma pueden descargar modelos. Si falla:
+Mira `metadata.n_raw_detections` y `metadata.n_filtered_detections` en el JSON de salida:
 
-- comprueba conexión
-- comprueba permisos del modelo
-- revisa `HF_HOME` o la caché de Hugging Face
-- autentica con Hugging Face si el modelo lo requiere
+- muchas crudas y pocas filtradas → baja `--min-confidence` (default `0.30`) o sube `--nms-iou-threshold`
+- pocas crudas → baja `--box-threshold`/`--text-threshold`; recuerda que, sin valor en el CLI, se usa el threshold de cada batch de vocabulario
 
-## CUDA/Torch Mismatch
+## `--vocab-mode` parece no tener efecto
 
-Síntomas:
+Es lo esperado sin `--legacy-visual-core`: la ruta por defecto fuerza `vocab_mode="audioset"` sea cual sea el flag. Además, `metadata.vocab_mode` registra el valor del CLI, no el efectivo.
 
-- errores de CUDA runtime
-- `torch.cuda.is_available()` falso
-- incompatibilidad entre `torch`, `torchvision` y drivers
+## OWLv2 ignora `text_threshold`
 
-Comprueba:
+Esperado. `OWLv2Adapter.predict` conserva el parámetro por compatibilidad con `GroundingDINOAdapter`, pero OWLv2 filtra solo con `box_threshold`.
+
+## Descargas de Hugging Face
+
+OWLv2 y los modelos GGUF pueden requerir descarga. Si falla: comprueba conexión, permisos del modelo, `HF_HOME`/caché, y autentícate si el modelo lo exige.
+
+## CUDA/Torch mismatch
+
+Síntomas: errores de CUDA runtime, `torch.cuda.is_available()` falso, incompatibilidad entre `torch`, `torchvision` y el driver.
 
 ```bash
 python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available())"
 ```
 
-Instala versiones de torch/torchvision compatibles con tu driver.
+Instala versiones compatibles con tu driver. No mezcles los tres entornos: cada uno tiene su combinación verificada de Python/Torch/CUDA.
 
-## ffmpeg/libopenh264
+## Out of memory
 
-Si alguna métrica o dependencia de multimedia falla con codecs, instala ffmpeg en el sistema o en el entorno. No es parte del flujo principal de JSON, pero puede aparecer en entornos con paquetes de visión/video.
+Solo un proceso pesado de GPU a la vez: para `llama-server` antes de lanzar Workflow B, y al revés. En GPUs pequeñas, sirve los modelos GGUF en 8 bits y ajusta `-ngl` para decidir cuántas capas van a GPU.
 
 ## Java/SPICE
 
-Las métricas de caption pueden requerir Java/SPICE según el script usado. Si falla SPICE:
+Las métricas de caption pueden requerir Java para SPICE. Si falla: instala Java, revisa permisos de descarga/caché, o reporta las métricas no-SPICE si el entorno no lo soporta.
 
-- instala Java
-- revisa permisos de descarga/cache
-- considera reportar métricas no-SPICE si el entorno no lo soporta
+## Referencias de Visual Genome no encontradas o vacías
 
-## Visual Genome References No Encontradas
+Revisa `--vg-object-refs` y `--vg-relationship-refs`, que `image_id` coincida con el manifest, y que los CSV tengan las columnas `image_id`, `objects` y `relationships`.
 
-Síntomas:
+Si el CSV de relaciones sale casi vacío, el problema suele ser la clave `name`/`names` del dump de VG. Ver [data_and_manifests.md](data_and_manifests.md).
 
-- `FileNotFoundError`
-- métricas vacías
-- ids sin referencias
+## Métricas que dan 0.0 sin error
 
-Revisa:
+Si estás evaluando predicciones `AudioSetCoreJSON` con `evaluate_all_semantic_metrics.py` (o con `evaluate_structured_vg.py` / `evaluate_soundscape_semantics.py`), los ceros son artefactos: esos scripts leen `core.entities`, que el formato audioset no tiene, y no avisan. Usa `evaluate_audioset_semantics.py` y `evaluate_scene_awareness.py`.
 
-- `--vg-object-refs`
-- `--vg-relationship-refs`
-- que `image_id` coincida con el manifest
-- que los CSV tengan columnas `image_id`, `objects` y `relationships`
+## Manifest con columnas inconsistentes
 
-## Paths del Manifest Incorrectos
+`build_prediction_manifest.py` emite columnas distintas para cada formato, y `csv.DictWriter` toma las claves de la primera fila. No mezcles predicciones audioset y legacy en un mismo `--inputs`.
+
+## Paths del manifest incorrectos
 
 `json_path` se resuelve desde el directorio donde ejecutas el comando. Usa rutas absolutas o ejecuta desde la raíz del repo.
 
-## Workflow A Manifest JSONL vs CSV
+## El JSONL de Workflow A no sirve como manifest
 
-Workflow A genera JSONL, pero evaluación semántica espera CSV. Convierte antes de llamar a `evaluate_all_semantic_metrics.py`.
+Workflow A escribe `manifests/manifest.jsonl`, pero la evaluación espera CSV. Genera el CSV con `build_prediction_manifest.py` apuntando al directorio `json/`.
 
-## OWLv2 Ignora `text_threshold`
+## ffmpeg/libopenh264
 
-Esto es esperado. `OWLv2Adapter.predict` conserva `text_threshold` para compatibilidad con `GroundingDINOAdapter`, pero OWLv2 filtra con `box_threshold`.
+Si alguna dependencia multimedia falla por codecs, instala ffmpeg en el sistema o en el entorno. No es parte del flujo principal de JSON, pero aparece en entornos con paquetes de visión/vídeo.

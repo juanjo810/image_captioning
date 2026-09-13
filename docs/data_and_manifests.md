@@ -1,6 +1,6 @@
 # Data and Manifests
 
-Este repositorio no versiona datasets grandes, outputs generados ni checkpoints. La estructura de datos debe prepararse localmente.
+Este repositorio no versiona datasets grandes, outputs generados ni checkpoints. La estructura de datos se prepara localmente.
 
 ## Layout Recomendado
 
@@ -27,17 +27,12 @@ outputs/
   metrics/
 ```
 
-Los paths son sugeridos. Los scripts aceptan rutas por argumento excepto varias rutas externas hardcoded en Workflow B.
-
 ## Imágenes
 
-Workflow A en modo directorio busca solo:
+Ambos workflows, en modo directorio, buscan solo `*.jpg`:
 
-```text
-*.jpg
-```
-
-Workflow B procesa una imagen por ejecución con `--image`.
+- Workflow A: `--image-dir` + `--limit`
+- Workflow B: `--image-dir` + `--limit` (el bucle es in-process; los modelos se cargan una sola vez)
 
 ## Outputs
 
@@ -52,52 +47,66 @@ outputs/workflow_a/
   failed/<image_id>.json
 ```
 
+Con `--legacy-visual-core`, todo eso cuelga de `outputs/workflow_a/legacy/`.
+
 ### Workflow B
 
-Si se pasa `--output-dir`:
+Con `--output-dir`:
 
 ```text
 outputs/workflow_b/<condition>/<image_id>.json
+outputs/workflow_b/<condition>/legacy/<image_id>.json   # con --legacy-visual-core
 ```
 
-Si no se pasa `--output-dir`, el JSON se imprime en stdout.
+Sin `--output-dir`, el JSON se imprime en stdout.
 
-## Manifest CSV para Evaluación
+## Manifest CSV para evaluación
 
-`evaluate_all_semantic_metrics.py` espera CSV. Columnas mínimas:
+Los scripts de métricas leen un CSV con, como mínimo:
 
 ```csv
 image_id,json_path,detector,scene_model,captioner
+123,outputs/pilot_vg/visual_json_audioset/owlv2_resnet50/123.json,owlv2,resnet50,template
 ```
 
-Columnas adicionales pueden existir, pero esas son las usadas por el evaluador.
+`json_path` apunta al JSON de predicción; las otras tres columnas agrupan el summary.
 
-Ejemplo:
-
-```csv
-image_id,json_path,detector,scene_model,captioner
-123,outputs/workflow_b/owlv2_resnet50/123.json,owlv2,resnet50,template
-```
-
-`scripts/evaluation/build_prediction_manifest.py` puede construir un manifest desde directorios de JSON:
+### `build_prediction_manifest.py`
 
 ```bash
-python scripts/evaluation/build_prediction_manifest.py \
-  --inputs outputs/workflow_b/owlv2_resnet50 outputs/workflow_b/grounding_dino_resnet50 \
+python -m scripts.evaluation.build_prediction_manifest \
+  --inputs outputs/pilot_vg/visual_json_audioset/owlv2_resnet50 \
+           outputs/pilot_vg/visual_json_audioset/grounding_dino_resnet50 \
   --output outputs/manifests/predictions.csv
 ```
 
-Nota: este helper infiere `detector`, `scene_model` y `captioner` desde nombres de directorio. Si usas otra convención, revisa el CSV resultante.
+Infiere la configuración desde los nombres de directorio:
+
+- `detector` / `scene_model`: del nombre del directorio padre, si empieza por `grounding_dino_` u `owlv2_`.
+- Layout de Workflow A (`<output_dir>/json/` o `<output_dir>/legacy/json/`): el padre inmediato nunca identifica la ejecución, así que sube un nivel — `detector` queda como `unknown` y `scene_model` toma el nombre de `<output_dir>`.
+- `captioner`: `gemma` si la ruta contiene `captions_gemma`, si no `template`.
+
+Si usas otra convención de nombres, revisa el CSV resultante.
+
+El script ramifica según el formato de cada predicción (`is_audioset_core_json`), y las columnas **no son las mismas**:
+
+| Columnas comunes | Solo `AudioSetCoreJSON` | Solo `CoreJSON` legacy |
+| --- | --- | --- |
+| `image_id`, `json_path`, `detector`, `scene_model`, `captioner`, `caption`, `scene_label`, `scene_confidence`, `indoor_outdoor`, `total_object_coverage`, `object_density_proxy`, `metadata_detector`, `metadata_scene_model`, `metadata_caption_mode`, `metadata_call_mode`, `metadata_model_id` | `n_nodes` | `n_entities`, `n_interactions`, `crowd_level`, `activity_level` |
+
+Las columnas de escena son las mismas en ambas ramas (`scene_label` / `scene_confidence` / `indoor_outdoor`).
+
+`metadata_call_mode` solo es significativo en predicciones audioset de Workflow A (`single`, `three`, `two`); en cualquier otro caso sale vacío.
+
+**No pases `--inputs` mezclando los dos formatos en una sola llamada**: las dos ramas devuelven columnas distintas y `csv.DictWriter` asume que las claves de la primera fila valen para todas. Genera un manifest por formato.
 
 ## Manifest JSONL de Workflow A
 
-Workflow A escribe:
+Workflow A escribe además su propio índice append-only, una línea por imagen:
 
 ```text
 outputs/workflow_a/manifests/manifest.jsonl
 ```
-
-con registros que incluyen:
 
 ```json
 {
@@ -108,14 +117,12 @@ con registros que incluyen:
 }
 ```
 
-Ese JSONL no es directamente el CSV esperado por `evaluate_all_semantic_metrics.py`.
+Ese JSONL **no** es el CSV que esperan los scripts de evaluación. Para evaluar, genera el CSV con `build_prediction_manifest.py` apuntando al directorio `json/`.
 
-## Visual Genome References
-
-Se pueden construir con:
+## Referencias Visual Genome
 
 ```bash
-python scripts/evaluation/build_vg_references.py \
+python -m scripts.evaluation.build_vg_references \
   --manifest outputs/manifests/predictions.csv \
   --region-descriptions data/vg/region_descriptions.json \
   --objects data/vg/objects.json \
@@ -128,17 +135,26 @@ python scripts/evaluation/build_vg_references.py \
 Genera:
 
 ```text
-vg_caption_references.csv
-vg_object_references.csv
-vg_relationship_references.csv
+vg_caption_references.csv       image_id,reference_caption
+vg_object_references.csv        image_id,objects
+vg_relationship_references.csv  image_id,relationships
 ```
 
-## Errores Comunes de Paths
+Trampa al preparar los datos de VG desde cero: el script lee solo la clave `names` en el subject/object de cada relación, pero el dump crudo de Visual Genome guarda `name` (singular) en la gran mayoría de los sujetos. Sobre un dump sin normalizar, `vg_relationship_references.csv` sale casi vacío y las métricas de relaciones dan ~0. El procedimiento de preparación del subconjunto descrito en [setup.md](setup.md) ya normaliza `name` → `names`, así que esto solo aplica si preparas los ficheros por tu cuenta saltándote ese paso.
+
+Comprobarlo es inmediato: cuenta cuántas filas traen la columna `relationships` vacía. Que **algunas** salgan vacías es normal y no indica fallo de parseo — hay imágenes de Visual Genome sin relaciones anotadas. Lo que delata el problema de `name`/`names` es que salgan vacías *casi todas*.
+
+## Alias maps
+
+`vg_utils.load_alias_map` espera el formato `canonical,alias1,alias2,...`. Los ficheros `object_alias.txt` y `relationship_alias.txt` que distribuye Visual Genome ya lo cumplen.
+
+## Errores comunes de paths
 
 | Problema | Solución |
 | --- | --- |
-| `json_path` relativo desde otro directorio | Ejecuta desde la raíz del repo o usa rutas absolutas. |
-| `image_id` no coincide entre manifest y refs | Asegura que ambos usen el mismo stem/id. |
-| CSV de relaciones vacío | Revisa formato `subject::predicate::object`. |
-| Workflow A JSONL usado como CSV | Convierte a CSV compatible antes de evaluar. |
-| Outputs/checkpoints en Git | Añade a `.gitignore`; no versionar archivos pesados generados. |
+| `json_path` relativo resuelto desde otro directorio | Ejecuta desde la raíz del repo o usa rutas absolutas. |
+| `image_id` no coincide entre manifest y referencias | Asegura que ambos usen el mismo stem/id. |
+| CSV de relaciones vacío | Revisa el formato `subject::predicate::object` y la normalización `name`/`names`. |
+| Manifest con columnas inconsistentes | Estabas mezclando predicciones audioset y legacy en un mismo `--inputs`. |
+| JSONL de Workflow A usado como CSV | Genera el CSV con `build_prediction_manifest.py`. |
+| Outputs/checkpoints en Git | Añádelos a `.gitignore`; no versionar generados pesados. |
