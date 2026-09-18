@@ -25,6 +25,7 @@ def run_batch(
     use_legacy_core: bool,
     call_mode: str,
     visual_terms_mapping: str,
+    schema_examples: str,
 ) -> Iterator[tuple[Path, str | None]]:
     """Run the pipeline once per image, yielding (image_path, error_or_None) as
     each one finishes -- not batched into a dict returned at the end, so the
@@ -40,6 +41,7 @@ def run_batch(
                 use_legacy_core=use_legacy_core,
                 call_mode=call_mode,
                 visual_terms_mapping=visual_terms_mapping,
+                schema_examples=schema_examples,
             )
             yield image_path, None
         except Exception as exc:
@@ -126,6 +128,13 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--schema-examples",
+        choices=["concrete", "generic"],
+        default="concrete",
+        help="Only meaningful with --call-mode five. See run_workflow_a.py --help.",
+    )
+
+    parser.add_argument(
         "--max-retries",
         type=int,
         default=2,
@@ -184,6 +193,7 @@ def main() -> None:
             use_legacy_core=args.legacy_visual_core,
             call_mode=args.call_mode,
             visual_terms_mapping=args.visual_terms_mapping,
+            schema_examples=args.schema_examples,
         ):
             if error is None:
                 print(f"  OK: {image_path.name}", flush=True)

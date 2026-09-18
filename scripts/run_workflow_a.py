@@ -114,6 +114,23 @@ def main() -> None:
         ),
     )
 
+    parser.add_argument(
+        "--schema-examples",
+        choices=["concrete", "generic"],
+        default="concrete",
+        help=(
+            "Only meaningful with --call-mode five. 'concrete' (default) shows a fixed "
+            "example in the JSON-schema section of calls 1 and 4 (e.g. [\"person\", "
+            "\"bicycle\", \"traffic light\"], two example nodes), matching call_mode=three's "
+            "own nodes-prompt example. 'generic' replaces those with placeholder text "
+            "with no fixed term/node count, to avoid few-shot anchoring on how many "
+            "items to return -- a 30-image pilot found this helps --visual-terms-mapping "
+            "discard (more terms declared, better on the 5 official AudioSet metrics) "
+            "but hurts force (more terms all get force-mapped, diluting node precision), "
+            "so it's kept as an explicit opt-in rather than the default."
+        ),
+    )
+
     args = parser.parse_args()
 
     model_id = args.model_id or "local-vlm"
@@ -143,6 +160,7 @@ def main() -> None:
                     use_legacy_core=args.legacy_visual_core,
                     call_mode=args.call_mode,
                     visual_terms_mapping=args.visual_terms_mapping,
+                    schema_examples=args.schema_examples,
                 )
             except Exception as exc:
                 print(f"FAILED: {image_path.name} -> {exc}")
@@ -156,6 +174,7 @@ def main() -> None:
             use_legacy_core=args.legacy_visual_core,
             call_mode=args.call_mode,
             visual_terms_mapping=args.visual_terms_mapping,
+            schema_examples=args.schema_examples,
         )
 
 
