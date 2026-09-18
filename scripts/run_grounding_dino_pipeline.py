@@ -184,7 +184,7 @@ def process_image(
     metadata = {
         "workflow": "B",
         "detector": args.detector,
-        "vocab_mode": args.vocab_mode,
+        "vocab_mode": effective_vocab_mode,
         "scene_model": scene,
         "box_threshold": batch["box_threshold"] if args.box_threshold is None else args.box_threshold,
         "text_threshold": batch["text_threshold"] if args.text_threshold is None else args.text_threshold,
