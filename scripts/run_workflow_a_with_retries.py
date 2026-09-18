@@ -24,6 +24,7 @@ def run_batch(
     include_audioset_nodes: bool,
     use_legacy_core: bool,
     call_mode: str,
+    visual_terms_mapping: str,
 ) -> Iterator[tuple[Path, str | None]]:
     """Run the pipeline once per image, yielding (image_path, error_or_None) as
     each one finishes -- not batched into a dict returned at the end, so the
@@ -38,6 +39,7 @@ def run_batch(
                 include_audioset_nodes=include_audioset_nodes,
                 use_legacy_core=use_legacy_core,
                 call_mode=call_mode,
+                visual_terms_mapping=visual_terms_mapping,
             )
             yield image_path, None
         except Exception as exc:
@@ -111,9 +113,16 @@ def main() -> None:
 
     parser.add_argument(
         "--call-mode",
-        choices=["single", "three", "two"],
+        choices=["single", "three", "two", "five"],
         default="single",
         help="Only meaningful without --legacy-visual-core. See run_workflow_a.py --help.",
+    )
+
+    parser.add_argument(
+        "--visual-terms-mapping",
+        choices=["discard", "force"],
+        default="discard",
+        help="Only meaningful with --call-mode five. See run_workflow_a.py --help.",
     )
 
     parser.add_argument(
@@ -174,6 +183,7 @@ def main() -> None:
             include_audioset_nodes=args.include_audioset_nodes,
             use_legacy_core=args.legacy_visual_core,
             call_mode=args.call_mode,
+            visual_terms_mapping=args.visual_terms_mapping,
         ):
             if error is None:
                 print(f"  OK: {image_path.name}", flush=True)
