@@ -46,9 +46,11 @@ class AudioSetCoreNode(StrictBaseModel):
 
 class AudioSetCoreJSON(StrictBaseModel):
     image_id: str = Field(min_length=1)
-    scene: Scene 
+    visual_terms: list[str] = Field(default_factory=list)
+    scene: Scene
     nodes: list[AudioSetCoreNode]
     caption: str = Field(min_length=1)
+    acoustic_caption: str | None = Field(default=None, min_length=1)
 
 
 class AudioSetGrounding(StrictBaseModel):
