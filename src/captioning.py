@@ -200,40 +200,48 @@ def build_caption(
 
 def build_audioset_caption(
     scene: Scene,
-    nodes: list[AudioSetCoreNode],
-    node_instance_counts: dict[str, int | None] | None = None,
+    visual_terms: list[str],
 ) -> str:
+    """Build the scored, visual-only caption for the audioset-only core: scene
+    plus the concrete objects in ``visual_terms``, nothing acoustic. This is
+    the caption caption-quality metrics (CIDEr/SPICE/CLIPScore/CHAIR) read --
+    see ``build_audioset_acoustic_caption`` for the separate sound layer that
+    is deliberately kept out of those metrics.
+    """
     scene_text = _scene_phrase(scene.label, scene.indoor_outdoor)
 
-    if not nodes:
+    visual_objects = visual_terms[:8]
+    if not visual_objects:
         return _finalize_caption([f"The image shows {scene_text}"])
+
+    sentence = f"The image shows {scene_text} with {_join_labels(visual_objects)}"
+    return _finalize_caption([sentence])
+
+
+def build_audioset_acoustic_caption(
+    scene: Scene,
+    nodes: list[AudioSetCoreNode],
+    node_instance_counts: dict[str, int | None] | None = None,
+) -> str | None:
+    """Build the separate, qualitative acoustic caption: one sound phrase per
+    node, ranked by confidence, singular/plural via ``_audioset_node_phrase``.
+    Returns ``None`` when there are no nodes -- there is nothing acoustic to
+    say, matching ``AudioSetCoreJSON.acoustic_caption`` being optional for
+    exactly that case, same as the caption-omission rule in Workflow A's
+    prompts.
+    """
+    if not nodes:
+        return None
 
     node_instance_counts = node_instance_counts or {}
     ranked_nodes = sorted(nodes, key=lambda n: n.confidence, reverse=True)
-
-    visual_objects: list[str] = []
-    for node in ranked_nodes:
-        for term in node.visual_evidence_terms or []:
-            if term not in visual_objects:
-                visual_objects.append(term)
-    visual_objects = visual_objects[:8]
 
     sound_labels = [
         _audioset_node_phrase(node.audioset_name, node_instance_counts.get(node.node_id))
         for node in ranked_nodes
     ]
 
-    if visual_objects:
-        sentence = (
-            f"The image shows {scene_text} with {_join_labels(visual_objects)}, "
-            f"where {_join_labels(sound_labels)} would plausibly be heard"
-        )
-    else:
-        sentence = (
-            f"The image shows {scene_text}, where {_join_labels(sound_labels)} "
-            "would plausibly be heard"
-        )
-
+    sentence = f"{_join_labels(sound_labels)} would plausibly be heard"
     return _finalize_caption([sentence])
 
 
