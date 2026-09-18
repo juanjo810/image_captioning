@@ -33,10 +33,12 @@ def compute_audioset_json_metrics(
     grounding_node_ids = {g.get("node_id") for g in grounding if g.get("node_id")}
 
     allowed_visual_terms = set(audioset_detectable_terms())
+    declared_visual_terms = set(core.get("visual_terms") or [])
 
     valid_audioset_id_count = 0
     nodes_with_visual_evidence_terms = 0
     valid_visual_evidence_terms_count = 0
+    subset_of_visual_terms_count = 0
 
     for node in nodes:
         audioset_id = str(node.get("audioset_id") or "").strip()
@@ -48,6 +50,8 @@ def compute_audioset_json_metrics(
             nodes_with_visual_evidence_terms += 1
             if set(terms) <= allowed_visual_terms:
                 valid_visual_evidence_terms_count += 1
+            if set(terms) <= declared_visual_terms:
+                subset_of_visual_terms_count += 1
 
     n_nodes = len(nodes)
 
@@ -69,6 +73,16 @@ def compute_audioset_json_metrics(
             if nodes_with_visual_evidence_terms > 0
             else 1.0
         ),
+        # Should be 1.0 for any node whose evidence terms were filtered
+        # against the declared visual_terms at generation time -- a ratio
+        # below 1.0 means some node cites a term that was never declared as
+        # visible, or the prediction predates visual_terms being recorded.
+        "visual_evidence_terms_subset_of_visual_terms_ratio": (
+            subset_of_visual_terms_count / nodes_with_visual_evidence_terms
+            if nodes_with_visual_evidence_terms > 0
+            else 1.0
+        ),
+        "n_visual_terms": len(core.get("visual_terms") or []),
         "has_caption": bool(core.get("caption")),
         "scene_label": core.get("scene", {}).get("label", ""),
         "scene_confidence": core.get("scene", {}).get("confidence", ""),

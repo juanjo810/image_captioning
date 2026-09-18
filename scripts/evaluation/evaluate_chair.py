@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from scripts.evaluation.vg_utils import load_alias_map, canonicalize
+from scripts.evaluation.vg_utils import load_alias_map, canonicalize, is_audioset_core_json
 
 
 CORE_FIELDS = [
@@ -63,10 +63,26 @@ def load_vg_object_refs(path: Path) -> dict[str, set[str]]:
     return refs
 
 
-def load_json_entities(json_path: Path, object_alias: dict[str, str]) -> set[str]:
+def load_json_entities(json_path: Path, object_alias: dict[str, str]) -> set[str] | None:
+    """Returns the canonicalized core.visual_terms set for AudioSetCoreJSON
+    predictions, or None (not just an empty set) when that field is genuinely
+    absent -- a prediction generated before visual_terms existed -- so callers
+    can tell "no data in this schema" apart from "real run, zero visual
+    terms". For legacy CoreJSON predictions, returns the canonicalized
+    core.entities labels as before."""
     data = json.loads(json_path.read_text(encoding="utf-8"))
+    core = data.get("core", {})
 
-    entities = data.get("core", {}).get("entities", [])
+    if is_audioset_core_json(data):
+        if "visual_terms" not in core:
+            return None
+        return {
+            canonicalize(term, object_alias)
+            for term in core["visual_terms"]
+            if term
+        }
+
+    entities = core.get("entities", [])
 
     return {
         canonicalize(entity.get("label", ""), object_alias)
@@ -179,10 +195,22 @@ def main() -> None:
             reference_objects=vg_objects,
         )
 
-        chair_s_json, chair_i_json, halluc_json, _ = chair_scores(
-            caption_objects=caption_objects,
-            reference_objects=json_objects,
-        )
+        # json_objects is None only for predictions that predate whichever
+        # JSON-object field applies to their schema (no core.entities, or an
+        # AudioSetCoreJSON with no visual_terms key) -- such rows are excluded
+        # from the JSON-hallucination average below instead of being counted
+        # as 100% hallucinated against a list that was never there.
+        json_metrics = None
+        if json_objects is not None:
+            chair_s_json, chair_i_json, halluc_json, _ = chair_scores(
+                caption_objects=caption_objects,
+                reference_objects=json_objects,
+            )
+            json_metrics = {
+                "CHAIRs_JSON": chair_s_json,
+                "CHAIRi_JSON": chair_i_json,
+                "hallucinated_json": halluc_json,
+            }
 
         condition = (
             row["detector"],
@@ -194,11 +222,9 @@ def main() -> None:
             {
                 "CHAIRs_VG": chair_s_vg,
                 "CHAIRi_VG": chair_i_vg,
-                "CHAIRs_JSON": chair_s_json,
-                "CHAIRi_JSON": chair_i_json,
                 "caption_objects_mentioned": mentioned,
                 "hallucinated_vg": halluc_vg,
-                "hallucinated_json": halluc_json,
+                "json_metrics": json_metrics,
             }
         )
 
@@ -206,6 +232,8 @@ def main() -> None:
 
     for (detector, scene_model, captioner), items in grouped.items():
         n = len(items)
+        json_items = [x["json_metrics"] for x in items if x["json_metrics"] is not None]
+        n_json = len(json_items)
 
         rows.append(
             {
@@ -214,8 +242,12 @@ def main() -> None:
                 "captioner": captioner,
                 "CHAIRs_VG": sum(x["CHAIRs_VG"] for x in items) / n,
                 "CHAIRi_VG": sum(x["CHAIRi_VG"] for x in items) / n,
-                "CHAIRs_JSON": sum(x["CHAIRs_JSON"] for x in items) / n,
-                "CHAIRi_JSON": sum(x["CHAIRi_JSON"] for x in items) / n,
+                "CHAIRs_JSON": (
+                    sum(x["CHAIRs_JSON"] for x in json_items) / n_json if json_items else ""
+                ),
+                "CHAIRi_JSON": (
+                    sum(x["CHAIRi_JSON"] for x in json_items) / n_json if json_items else ""
+                ),
                 "avg_caption_objects_mentioned": (
                     sum(x["caption_objects_mentioned"] for x in items) / n
                 ),
@@ -223,7 +255,7 @@ def main() -> None:
                     sum(x["hallucinated_vg"] for x in items) / n
                 ),
                 "avg_hallucinated_json": (
-                    sum(x["hallucinated_json"] for x in items) / n
+                    sum(x["hallucinated_json"] for x in json_items) / n_json if json_items else ""
                 ),
                 "n": n,
             }

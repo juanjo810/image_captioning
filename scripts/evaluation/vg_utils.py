@@ -72,7 +72,16 @@ def get_prediction_entities(
     pred_json: dict[str, Any],
     object_alias: dict[str, str] | None = None,
 ) -> set[str]:
-    entities = pred_json.get("core", {}).get("entities", [])
+    core = pred_json.get("core", {})
+
+    if is_audioset_core_json(pred_json):
+        return {
+            canonicalize(term, object_alias)
+            for term in core.get("visual_terms", [])
+            if term
+        }
+
+    entities = core.get("entities", [])
 
     return {
         canonicalize(entity.get("label", ""), object_alias)

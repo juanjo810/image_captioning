@@ -72,15 +72,25 @@ def load_vg_object_refs(path: Path) -> dict[str, set[str]]:
 
 
 def load_json_entities(json_path: Path, object_alias: dict[str, str]) -> set[str] | None:
-    """Returns None (not just an empty set) for AudioSetCoreJSON predictions,
-    which have no core.entities at all -- so callers can tell "no entities in
-    this schema" apart from "legacy schema, but happens to have zero entities"."""
+    """Returns the canonicalized core.visual_terms set for AudioSetCoreJSON
+    predictions, or None (not just an empty set) when that field is genuinely
+    absent -- a prediction generated before visual_terms existed -- so callers
+    can tell "no data in this schema" apart from "real run, zero visual
+    terms". For legacy CoreJSON predictions, returns the canonicalized
+    core.entities labels as before."""
     data = json.loads(json_path.read_text(encoding="utf-8"))
+    core = data.get("core", {})
 
     if is_audioset_core_json(data):
-        return None
+        if "visual_terms" not in core:
+            return None
+        return {
+            canonicalize(term, object_alias)
+            for term in core["visual_terms"]
+            if term
+        }
 
-    entities = data.get("core", {}).get("entities", [])
+    entities = core.get("entities", [])
 
     return {
         canonicalize(entity.get("label", ""), object_alias)
@@ -255,12 +265,15 @@ def evaluate_chair_group(
     object_alias: dict[str, str],
 ) -> dict[str, float | int | str]:
     """CHAIRi_VG is computed for every row (VG references are external ground
-    truth, independent of the prediction's own schema). CHAIRi_JSON only makes
-    sense for legacy CoreJSON predictions, which have core.entities -- for
-    AudioSetCoreJSON predictions load_json_entities() returns None per row, so
-    those rows are excluded from the JSON-hallucination average instead of
-    being counted as 100% hallucinated against an entities list that was never
-    there to begin with."""
+    truth, independent of the prediction's own schema). CHAIRi_JSON compares
+    the caption against core.entities for legacy CoreJSON predictions, or
+    against core.visual_terms for AudioSetCoreJSON predictions -- both are
+    the JSON's own account of what's visually present, just under different
+    field names. load_json_entities() returns None only for predictions that
+    predate whichever field applies to their schema (no core.entities, or an
+    AudioSetCoreJSON with no visual_terms key at all), and those rows are
+    excluded from the JSON-hallucination average instead of being counted as
+    100% hallucinated against a list that was never there to begin with."""
     vg_items = []
     json_items = []
 
