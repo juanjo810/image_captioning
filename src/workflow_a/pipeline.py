@@ -64,22 +64,29 @@ class WorkflowAPipeline:
         use_legacy_core: bool = False,
         call_mode: str = "single",
         visual_terms_mapping: str = "discard",
+        schema_examples: str = "concrete",
     ) -> dict[str, Any]:
         if visual_terms_mapping not in ("discard", "force"):
             raise ValueError(
                 f"visual_terms_mapping must be 'discard' or 'force', got {visual_terms_mapping!r}"
+            )
+        if schema_examples not in ("concrete", "generic"):
+            raise ValueError(
+                f"schema_examples must be 'concrete' or 'generic', got {schema_examples!r}"
             )
 
         generators = {
             "single": self._generate_single_call,
             "three": self._generate_three_call,
             "two": self._generate_two_call,
-            # Only call 3 of 'five' reads visual_terms_mapping (see
-            # _generate_five_call) -- bound here via a small wrapper instead
-            # of threading an unused parameter through the other three
-            # generators, which otherwise share an identical signature.
+            # Only calls 1/3/4 of 'five' read visual_terms_mapping/
+            # schema_examples (see _generate_five_call) -- bound here via a
+            # small wrapper instead of threading unused parameters through
+            # the other three generators, which otherwise share an identical
+            # signature.
             "five": lambda *args: self._generate_five_call(
                 *args, visual_terms_mapping=visual_terms_mapping,
+                schema_examples=schema_examples,
             ),
         }
         if call_mode not in generators:
@@ -349,6 +356,7 @@ class WorkflowAPipeline:
         max_new_tokens,
         *,
         visual_terms_mapping: str = "discard",
+        schema_examples: str = "concrete",
     ) -> _StagedOutput:
         """Call 1 (free visual_terms + free scene, image attached, the only
         call in this flow that sees the image and the only call in any
@@ -399,8 +407,21 @@ class WorkflowAPipeline:
         larger batch before deciding whether to keep 'discard' as the
         default -- a 30-image pilot with a small local VLM found a genuine
         trade-off between the two, not a clear winner.
+
+        schema_examples picks calls 1 and 4's JSON-schema example style (see
+        build_workflow_a_free_visual_prompt / build_workflow_a_audioset_core_nodes_prompt):
+        'concrete' (default) shows fixed-content, fixed-count examples,
+        matching call_mode='three''s own nodes-prompt example; 'generic'
+        replaces them with placeholder text to avoid few-shot anchoring on
+        term/node count. Exposed as its own flag, orthogonal to
+        visual_terms_mapping, because the same 30-image pilot found the two
+        axes interact: 'generic' raised the free-term count enough to help
+        'discard' (more signal survives the drop filter) but hurt 'force'
+        (more free terms all getting force-mapped diluted node precision) --
+        no single winner across both mapping modes, so neither value is
+        clearly right without testing on a larger VLM/batch.
         """
-        call1_prompt = build_workflow_a_free_visual_prompt()
+        call1_prompt = build_workflow_a_free_visual_prompt(schema_examples=schema_examples)
         call1_raw = self.vlm.generate(
             image_path=image_path, prompt=call1_prompt, max_new_tokens=max_new_tokens
         )
@@ -461,6 +482,7 @@ class WorkflowAPipeline:
                 extra_metadata={
                     "n_free_visual_terms": len(free_visual_terms),
                     "visual_terms_mapping": visual_terms_mapping,
+                    "schema_examples": schema_examples,
                 },
             )
 
@@ -492,7 +514,7 @@ class WorkflowAPipeline:
         if visual_terms:
             call4_prompt = build_workflow_a_audioset_core_nodes_prompt(
                 visual_terms=visual_terms, allowed_audioset_nodes=allowed_audioset_nodes,
-                image_attached=False,
+                image_attached=False, schema_examples=schema_examples,
             )
             call4_raw = self.vlm.generate(
                 image_path=None, prompt=call4_prompt, max_new_tokens=max_new_tokens
@@ -539,6 +561,7 @@ class WorkflowAPipeline:
                 "n_free_visual_terms": len(free_visual_terms),
                 "n_mapped_visual_terms": len(visual_terms),
                 "visual_terms_mapping": visual_terms_mapping,
+                "schema_examples": schema_examples,
             },
         )
 
