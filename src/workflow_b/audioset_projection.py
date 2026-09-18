@@ -11,7 +11,7 @@ from metrics.audioset_leaf_vocab import audioset_leaf_rules
 from metrics.audioset_ontology import load_audioset_ontology
 from scripts.evaluation.vg_utils import normalize_text
 from src.geometry import Detection, compute_global_geometry, entity_geometry
-from src.captioning import build_audioset_caption
+from src.captioning import build_audioset_caption, build_audioset_acoustic_caption
 from src.schemas import (
     AudioSetCoreJSON,
     AudioSetCoreNode,
@@ -121,13 +121,22 @@ def project_detections_to_audioset(
         confidence=scene_confidence
     )
 
-    caption = build_audioset_caption(audioset_scene, nodes, node_instance_counts)
+    # Every filtered detection's normalized label, not just the ones that
+    # fired a leaf rule -- an object with no associated sound rule is still a
+    # perfectly valid VG object, and leaving it out of visual_terms (and thus
+    # out of the caption) was recall given away for free in CIDEr/SPICE/CHAIR.
+    visual_terms = list(dict.fromkeys(normalized_detection_labels.values()))
+
+    caption = build_audioset_caption(audioset_scene, visual_terms)
+    acoustic_caption = build_audioset_acoustic_caption(audioset_scene, nodes, node_instance_counts)
 
     core = AudioSetCoreJSON(
         image_id=image_id,
         scene=audioset_scene,
+        visual_terms=visual_terms,
         nodes=nodes,
         caption=caption,
+        acoustic_caption=acoustic_caption,
     )
 
     entity_records = [
