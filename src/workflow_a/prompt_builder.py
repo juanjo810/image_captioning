@@ -299,7 +299,7 @@ Allowed AudioSet node list for STAGE 2 (choose only from these):
 """.strip()
 
 
-def build_workflow_a_free_visual_prompt() -> str:
+def build_workflow_a_free_visual_prompt(*, schema_examples: str = "concrete") -> str:
     """Call 1 of the five-call audioset-core flow (call_mode='five'): the only
     call in this flow with the image attached, and the only call in any
     call_mode with no closed list at all -- no visual-term vocabulary, no
@@ -307,7 +307,23 @@ def build_workflow_a_free_visual_prompt() -> str:
     same free-form scene style as phase 1 of 'two'
     (``build_workflow_a_audioset_core_free_scene_prompt``), but without nodes
     or caption: those are deferred to later calls once the free terms/scene
-    have been mapped onto the closed vocabularies."""
+    have been mapped onto the closed vocabularies.
+
+    schema_examples='concrete' (default): the JSON-schema example shows a
+    fixed 3-term/one-scene example (["person", "bicycle", "traffic light"]),
+    matching the style call_mode='three' has always used for its own schema
+    examples. schema_examples='generic': placeholder text instead of concrete
+    terms/count, avoiding the few-shot anchoring a fixed-length, fixed-domain
+    example can create even when labeled "just the format" -- a 30-image
+    pilot with 'discard' visual-terms mapping found this raised the free-term
+    count the model declared (~4.2 -> ~4.8 terms/image) and improved all 5
+    official AudioSet metrics, but the same change *hurt* 'force' mapping
+    (more free terms all getting force-mapped diluted node precision) --
+    kept as an explicit, testable alternative rather than the new default for
+    that reason, the same way 'force' is kept opt-in relative to 'discard'."""
+    if schema_examples not in ("concrete", "generic"):
+        raise ValueError(f"schema_examples must be 'concrete' or 'generic', got {schema_examples!r}")
+
     base_prompt = """
 Return ONLY one valid JSON object. No markdown. No explanations.
 The JSON must start with { and end with }.
@@ -321,13 +337,25 @@ Rules:
 - Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
 """.strip()
 
-    json_schema_prompt = """
+    if schema_examples == "concrete":
+        json_schema_prompt = """
 Return exactly this schema:
 {
   "visual_terms": ["person", "bicycle", "traffic light"],
   "scene": {
     "label": "busy urban street",
     "indoor_outdoor": "outdoor"
+  }
+}
+""".strip()
+    else:
+        json_schema_prompt = """
+Return exactly this schema:
+{
+  "visual_terms": ["<one short noun phrase per visible object -- include as many or as few entries as the image actually shows, this example length is not a target>"],
+  "scene": {
+    "label": "<your own 1-3 word description of the scene>",
+    "indoor_outdoor": "indoor"
   }
 }
 """.strip()
@@ -540,6 +568,7 @@ def build_workflow_a_audioset_core_nodes_prompt(
     visual_terms: list[str],
     allowed_audioset_nodes: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
     image_attached: bool = True,
+    schema_examples: str = "concrete",
 ) -> str:
     """Stage 2 of the three-call audioset-core flow (image_attached=True): infer
     AudioSet nodes from the visual terms already committed to in stage 1 (see
@@ -547,7 +576,20 @@ def build_workflow_a_audioset_core_nodes_prompt(
     (image_attached=False), as call 4 of the five-call flow, where the visual
     terms were instead produced and mapped by two earlier calls that did not
     see the image at this step -- ``build_workflow_a_free_visual_prompt`` then
-    ``build_workflow_a_visual_terms_mapping_prompt``."""
+    ``build_workflow_a_visual_terms_mapping_prompt``.
+
+    schema_examples='concrete' (default, and the only mode call_mode='three'
+    ever requests -- it never passes this argument): the JSON-schema example
+    shows a fixed two-node example ("Walk, footsteps" + "Car passing by").
+    schema_examples='generic': a single placeholder node with an explicit
+    note that the count shown is not the expected count, avoiding the same
+    few-shot anchoring concern as build_workflow_a_free_visual_prompt's
+    schema example -- only call_mode='five' ever passes 'generic' here, via
+    its own --schema-examples flag; see that function's docstring for the
+    pilot result (helped 'discard' mapping, hurt 'force')."""
+    if schema_examples not in ("concrete", "generic"):
+        raise ValueError(f"schema_examples must be 'concrete' or 'generic', got {schema_examples!r}")
+
     if image_attached:
         image_rule = (
             "- An image is attached so you can look closely and confirm details (e.g. what shape an "
@@ -592,7 +634,8 @@ Rules:
 - If no AudioSet node is visually justified, return an empty "nodes" array.
 """.strip()
 
-    json_schema_prompt = """
+    if schema_examples == "concrete":
+        json_schema_prompt = """
 Return exactly this schema:
 {
   "nodes": [
@@ -616,6 +659,29 @@ Return exactly this schema:
 }
 
 If there is no visually justified node, use: "nodes": []
+"""
+    else:
+        json_schema_prompt = """
+Return exactly this schema:
+{
+  "nodes": [
+    {
+      "node_id": "n1",
+      "audioset_id": "<exact id from the allowed AudioSet node list below>",
+      "audioset_name": "<exact name from that same allowed-list entry>",
+      "node_type": "visible_source or visible_action",
+      "evidence": "<what you see that justifies this node>",
+      "visual_evidence_terms": ["<subset of visual-terms to infer from>"]
+    }
+  ]
+}
+
+This example shows the shape of a single entry, not the expected count: include as many entries (n1, n2, n3, ...) as are visually justified by "visual-terms to infer from" below, in any number from zero upward.
+
+If there is no visually justified node, use: "nodes": []
+"""
+
+    json_schema_prompt = json_schema_prompt.strip() + """
 
 Bad example (do NOT do this): if "visual-terms to infer from" is ["person", "car"], do not produce a node like
 {"audioset_name": "Cowbell", "evidence": "a cowbell is visible on a pole", "visual_evidence_terms": ["car"]}
