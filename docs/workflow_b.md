@@ -162,10 +162,16 @@ El bucle ocurre dentro del proceso: los modelos se cargan una sola vez. Un proce
 
 - empareja las detecciones filtradas contra `metrics/audioset_leaf_vocab.py::audioset_leaf_rules`, las mismas reglas hoja que se usan para derivar las referencias de evaluación;
 - construye cada `AudioSetCoreNode`, rellenando `visual_evidence_terms` con las etiquetas normalizadas de las detecciones que dispararon la regla, más `confidence`, `parent_ids` (`AudioSetOntology.parents_or_self`) y `top_level_ids` (`top_levels`). Workflow A no rellena ninguno de estos tres últimos;
+- rellena `core.visual_terms` con las etiquetas normalizadas de **todas** las detecciones filtradas, no solo las que dispararon una regla hoja — un objeto detectado sin regla acústica asociada sigue siendo un objeto VG válido, y antes quedaba invisible en la caption;
 - construye la escena como un `Scene` de Places365 normal (`label` / `indoor_outdoor` vía `infer_indoor_outdoor_from_scene` / `confidence` real). **La escena no es un nodo AudioSet**;
 - emite `AudioSetExtendedJSON` con `grounding[]` (bbox, `node_id`, `detector_confidence`, `source`) y `global_geometry`.
 
-La caption viene de `src/captioning.py::build_audioset_caption`: determinista, y nombra primero los objetos visuales concretos de los `visual_evidence_terms` de los nodos, y después los sonidos plausibles. Así cada sustantivo de la caption es trazable a una detección, no solo la capa acústica.
+`caption` y `acoustic_caption` se escriben por separado, ambos deterministas y sin LLM:
+
+- `caption` viene de `src/captioning.py::build_audioset_caption(scene, visual_terms)`: solo la frase visual, a partir de `core.visual_terms` (hasta 8), sin tocar los nodos.
+- `acoustic_caption` viene de `build_audioset_acoustic_caption(scene, nodes, node_instance_counts)`: un sonido por nodo, rankeado por confianza, con singular/plural vía `_audioset_node_phrase`. `None` si `nodes` está vacío.
+
+`visual_evidence_terms` de cada nodo sigue saliendo solo de las detecciones que dispararon su regla — sigue siendo, por construcción, subconjunto de `visual_terms`.
 
 No hay HOI, ni `spatial_relations.py`, ni `src/fusion.py` en esta ruta.
 
@@ -205,6 +211,7 @@ Ruta por defecto:
   "core": {
     "image_id": "example",
     "scene": { "label": "street", "indoor_outdoor": "outdoor", "confidence": 0.61 },
+    "visual_terms": ["car", "person", "traffic light"],
     "nodes": [
       {
         "node_id": "n1",
@@ -218,7 +225,8 @@ Ruta por defecto:
         "top_level_ids": ["/t/dd00041"]
       }
     ],
-    "caption": "..."
+    "caption": "The image shows a street scene with car, person, and traffic light.",
+    "acoustic_caption": "Motor vehicle noise would plausibly be heard."
   },
   "extended": {
     "grounding": [],

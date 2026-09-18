@@ -15,8 +15,10 @@ Ambos workflows emiten por defecto el esquema **audioset-only**, y ambos aceptan
 
 | Esquema | Flag | `core` contiene |
 | --- | --- | --- |
-| `AudioSetCoreJSON` (por defecto) | — | `image_id`, `scene`, `nodes[]`, `caption` |
+| `AudioSetCoreJSON` (por defecto) | — | `image_id`, `scene`, `visual_terms[]`, `nodes[]`, `caption`, `acoustic_caption` opcional |
 | `CoreJSON` (legacy) | `--legacy-visual-core` | `image_id`, `scene`, `entities[]`, `observed_interactions[]`, `spatial_relations[]`, `environment`, `caption` |
+
+En `AudioSetCoreJSON`, `caption` es solo la cláusula visual (puntuable con CIDEr/SPICE/CLIPScore/CHAIR); `acoustic_caption` es la capa de sonidos plausibles, separada a propósito para que no dependa de qué nodos sobrevivan a la validación ni contamine esas métricas.
 
 `scene` es el **mismo modelo `Scene`** en los dos esquemas (`label` de Places365, `indoor_outdoor`, `confidence` opcional).
 
@@ -28,7 +30,7 @@ Definiciones exactas: [src/schemas.py](src/schemas.py). Todos los modelos usan `
 
 | Área | Estado | Nota |
 | --- | --- | --- |
-| Workflow A `AudioSetCoreJSON` | Implementado | Por defecto. Modos `--call-mode single\|three\|two`. |
+| Workflow A `AudioSetCoreJSON` | Implementado | Por defecto. Modos `--call-mode single\|three\|two\|five`. |
 | Workflow A `CoreJSON` legacy | Implementado | Solo con `--legacy-visual-core`. |
 | Workflow A backend VLM | Solo llama.cpp | `LlamaCppServerAdapter`. El adaptador Gemma vía Transformers fue eliminado. |
 | Workflow B `AudioSetCoreJSON` | Implementado | Proyección por reglas hoja, sin HOI ni relaciones espaciales. |
@@ -44,12 +46,12 @@ Definiciones exactas: [src/schemas.py](src/schemas.py). Todos los modelos usan `
 
 ```text
 Imagen
-  |-- Workflow A: VLM -> visual_terms -> nodes AudioSet + scene + caption
-  |                     (1, 2 o 3 llamadas según --call-mode)
+  |-- Workflow A: VLM -> visual_terms -> nodes AudioSet + scene + caption + acoustic_caption
+  |                     (1 a 5 llamadas según --call-mode)
   |
   `-- Workflow B: Places365 -> batches de vocabulario AudioSet
         -> GroundingDINO/OWLv2 -> filtros/NMS/dedup
-        -> proyección por reglas hoja -> nodes + scene + caption determinista
+        -> proyección por reglas hoja -> nodes + visual_terms + scene + caption + acoustic_caption deterministas
 
 Evaluación:
 predicciones JSON + manifest CSV + referencias Visual Genome
@@ -142,6 +144,7 @@ Modos de llamada alternativos (solo en la ruta audioset):
 ```bash
 python -m scripts.run_workflow_a --image data/images/example.jpg --call-mode three
 python -m scripts.run_workflow_a --image data/images/example.jpg --call-mode two
+python -m scripts.run_workflow_a --image data/images/example.jpg --call-mode five
 ```
 
 Lotes desatendidos con reintento automático de las imágenes que fallaron:
@@ -264,7 +267,8 @@ AudioSet se usa como ontología canónica para pseudo-referencias acústico-sem�
 - No hay reconocimiento acústico real.
 - Visual Genome no contiene etiquetas acústicas; se usan pseudo-referencias derivadas de objetos y relaciones.
 - Workflow B tiene rutas externas hardcoded bajo `/home/jovyan/projects`.
-- En Workflow A, un nodo sin `visual_evidence_terms` válidos tras la validación se descarta; la caption se escribió antes de validar, así que puede mencionar un sonido que ya no tiene nodo asociado.
+- En Workflow A, un nodo sin `visual_evidence_terms` válidos tras la validación se descarta. Ya no afecta a `caption`: es una cláusula solo-visual, independiente de `nodes`; la capa de sonidos vive aparte en `acoustic_caption`.
+- El vocabulario cerrado de 210 términos AudioSet-detectables no cubre mobiliario de interior ni objetos estáticos sin sonido característico. Con `--call-mode five`, esto puede dejar `core.visual_terms`/`core.nodes` vacíos para una imagen — es una predicción válida (la escena y el caption siguen siendo puntuables), no un fallo de generación.
 - Workflow A no emite `extended`: sus predicciones no tienen geometría ni grounding.
 - `evaluate_all_semantic_metrics.py` apuntado a predicciones `AudioSetCoreJSON` devuelve ceros en vez de avisar: sus métricas leen `core.entities`/`core.observed_interactions` con un default de lista vacía, y el esquema audioset no tiene esos campos, así que precision/recall/F1 salen 0.0 sin ningún error. Es un resultado inválido que parece válido: úsalo solo con predicciones `--legacy-visual-core`.
 - La instalación requiere entornos separados; no mezclar Workflow A, Workflow B y Evaluation.

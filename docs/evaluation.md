@@ -23,6 +23,8 @@ Esta es la decisión más importante antes de evaluar nada: cuál es el esquema 
 
 `evaluate_all_semantic_metrics.py` y los scripts que orquesta leen `core.entities` y `core.observed_interactions` con un default de lista vacía. Apuntados a predicciones `AudioSetCoreJSON` **no fallan**: devuelven precision/recall/F1 = 0.0, que parece un resultado válido y no lo es. Úsalos solo con predicciones generadas con `--legacy-visual-core`.
 
+Matiz sobre `evaluate_structured_vg.py`: su mitad de **entidades** sí funciona contra `AudioSetCoreJSON` (`get_prediction_entities` ramifica y lee `core.visual_terms`), pero su mitad de **interacciones** (`get_prediction_interactions`) sigue leyendo solo `core.observed_interactions`, que el esquema audioset no tiene — como el script escribe ambas mitades en el mismo CSV, sigue clasificado como "No" en la tabla: la parte de interacciones seguiría saliendo en 0.0 de forma silenciosa.
+
 ## Las 5 métricas oficiales AudioSet
 
 Son las métricas ontológicas que se reportan en los experimentos nuevos:
@@ -109,7 +111,9 @@ python -m scripts.evaluation.evaluate_all_caption_metrics \
 
 `CHAIRi_VG` se calcula para toda fila, sea cual sea el esquema: las referencias VG son ground truth externo, independiente del formato de la predicción.
 
-`CHAIRi_JSON` y `avg_hallucinated_json` solo tienen sentido contra `core.entities`, que un `AudioSetCoreJSON` no tiene. Para esas filas `load_json_entities` devuelve `None` (no un conjunto vacío) y la fila se **excluye** del promedio, en vez de contarla como 100 % de alucinación. Si ninguna fila del grupo tenía entidades, la celda del CSV sale vacía, no `0.0`.
+`CHAIRi_JSON` y `avg_hallucinated_json` comparan la caption contra `core.entities` en el esquema legacy, o contra `core.visual_terms` en `AudioSetCoreJSON` — ambos son la cuenta propia del JSON de qué hay visualmente presente, solo que bajo un nombre de campo distinto. `load_json_entities` devuelve `None` (no un conjunto vacío) únicamente cuando el campo que le corresponde a ese esquema falta del todo — sin `core.entities`, o un `AudioSetCoreJSON` sin la clave `visual_terms` (predicciones generadas antes de que ese campo existiera). Esas filas se **excluyen** del promedio, en vez de contarlas como 100 % de alucinación. Si ninguna fila del grupo tenía datos, la celda del CSV sale vacía, no `0.0`.
+
+`get_prediction_entities` (`vg_utils.py`), usado por `evaluate_structured_vg.py` y `evaluate_all_semantic_metrics.py`, ramifica igual: para `AudioSetCoreJSON` lee `core.visual_terms` canonicalizado con el mismo mapa de alias que las etiquetas de entidad legacy. Esto recupera precisión/recall/F1 de "entidades" para el formato audioset **sin tocar esos dos scripts** — pero solo para el eje de objetos: no hay equivalente de `core.observed_interactions` en `AudioSetCoreJSON`, así que las métricas de interacción siguen sin aplicar.
 
 ## Orquestador legacy
 
@@ -180,8 +184,10 @@ También ramifica con `is_audioset_core_json`. Para predicciones audioset compru
 - consistencia de `extended.grounding[].node_id` contra `core.nodes`
 - `audioset_id_valid_ratio` — que cada `audioset_id` resuelva en la ontología
 - `visual_evidence_terms_valid_ratio` — que los `visual_evidence_terms` de cada nodo sean subconjunto del vocabulario detectable compartido, contado aparte del ratio anterior
+- `visual_evidence_terms_subset_of_visual_terms_ratio` — que los `visual_evidence_terms` de cada nodo sean además subconjunto de `core.visual_terms` (lo que el modelo/detector realmente declaró ver, no solo del vocabulario global)
+- `n_visual_terms` — tamaño de `core.visual_terms`
 
-`visual_evidence_terms_valid_ratio` debería ser siempre 1.0 en predicciones generadas después de la restricción de `node_type` en Workflow A: el validador de generación descarta el nodo entero en vez de emitirlo con evidencia vacía. Un valor por debajo de 1.0 solo aparece con predicciones anteriores a ese cambio.
+`visual_evidence_terms_valid_ratio` y `visual_evidence_terms_subset_of_visual_terms_ratio` deberían ser siempre 1.0 en predicciones generadas después de la restricción de `node_type` en Workflow A: el validador de generación descarta el nodo entero en vez de emitirlo con evidencia vacía o no declarada. Un valor por debajo de 1.0 solo aparece con predicciones anteriores a ese cambio.
 
 Para predicciones legacy comprueba en cambio la consistencia `entity_id` / `extended_ids`.
 

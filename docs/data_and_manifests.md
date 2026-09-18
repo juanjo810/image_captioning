@@ -92,11 +92,11 @@ El script ramifica según el formato de cada predicción (`is_audioset_core_json
 
 | Columnas comunes | Solo `AudioSetCoreJSON` | Solo `CoreJSON` legacy |
 | --- | --- | --- |
-| `image_id`, `json_path`, `detector`, `scene_model`, `captioner`, `caption`, `scene_label`, `scene_confidence`, `indoor_outdoor`, `total_object_coverage`, `object_density_proxy`, `metadata_detector`, `metadata_scene_model`, `metadata_caption_mode`, `metadata_call_mode`, `metadata_model_id` | `n_nodes` | `n_entities`, `n_interactions`, `crowd_level`, `activity_level` |
+| `image_id`, `json_path`, `detector`, `scene_model`, `captioner`, `caption`, `scene_label`, `scene_confidence`, `indoor_outdoor`, `total_object_coverage`, `object_density_proxy`, `metadata_detector`, `metadata_scene_model`, `metadata_caption_mode`, `metadata_call_mode`, `metadata_model_id` | `n_nodes`, `n_visual_terms` | `n_entities`, `n_interactions`, `crowd_level`, `activity_level` |
 
 Las columnas de escena son las mismas en ambas ramas (`scene_label` / `scene_confidence` / `indoor_outdoor`).
 
-`metadata_call_mode` solo es significativo en predicciones audioset de Workflow A (`single`, `three`, `two`); en cualquier otro caso sale vacío.
+`metadata_call_mode` solo es significativo en predicciones audioset de Workflow A (`single`, `three`, `two`, `five`); en cualquier otro caso sale vacío.
 
 **No pases `--inputs` mezclando los dos formatos en una sola llamada**: las dos ramas devuelven columnas distintas y `csv.DictWriter` asume que las claves de la primera fila valen para todas. Genera un manifest por formato.
 

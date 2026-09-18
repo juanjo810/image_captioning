@@ -30,7 +30,7 @@ Módulos compartidos por los dos workflows:
 
 Pipeline VLM:
 
-- `prompt_builder.py` — un builder por modo de llamada y por ruta (`single`, `three`, `two`, legacy)
+- `prompt_builder.py` — un builder por modo de llamada y por ruta (`single`, `three`, `two`, `five`, legacy)
 - `parser.py` — extracción del bloque JSON de la respuesta cruda
 - `validator.py` — normalización y validación Pydantic de cada formato
 - `pipeline.py` — orquesta llamadas, escribe outputs y el manifest JSONL

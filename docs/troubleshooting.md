@@ -58,9 +58,9 @@ Prueba:
 - usar un modelo multimodal más obediente al formato JSON
 - para lotes, `run_workflow_a_with_retries` reintenta solo las imágenes fallidas
 
-## `core.nodes` sale vacío, pero la caption menciona sonidos
+## `core.nodes` y/o `core.visual_terms` salen vacíos
 
-Comportamiento conocido, no un fallo de instalación. El validador descarta los nodos que se quedan sin `visual_evidence_terms` válidos, y la caption se escribió antes de esa validación, en la misma llamada. Revisa los `visual_terms` declarados en `raw/` para ver qué se filtró.
+No es un fallo: `caption` y `acoustic_caption` son campos separados, y `caption` depende solo de `visual_terms`, nunca de `nodes` — no puede haber una caption puntuable que mencione un sonido cuyo nodo se descartó en la validación (eso pasaba antes del *split*). Un `core.visual_terms` vacío significa que ningún término declarado tenía equivalente en el vocabulario cerrado de 210 términos; revisa `raw/` (y, en `five`, `metadata.n_free_visual_terms`/`n_mapped_visual_terms`) para confirmarlo.
 
 ## Falta GroundingDINO
 
@@ -91,7 +91,7 @@ Mira `metadata.n_raw_detections` y `metadata.n_filtered_detections` en el JSON d
 
 ## `--vocab-mode` parece no tener efecto
 
-Es lo esperado sin `--legacy-visual-core`: la ruta por defecto fuerza `vocab_mode="audioset"` sea cual sea el flag. Además, `metadata.vocab_mode` registra el valor del CLI, no el efectivo.
+Es lo esperado sin `--legacy-visual-core`: la ruta por defecto fuerza `vocab_mode="audioset"` sea cual sea el flag. `metadata.vocab_mode` registra el valor efectivo (`"audioset"` en ese caso, o el flag real con `--legacy-visual-core`), no el flag crudo del CLI.
 
 ## OWLv2 ignora `text_threshold`
 
