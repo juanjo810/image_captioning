@@ -131,9 +131,9 @@ Rules:
 - Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
 
 CAPTION RULE (strict):
-Write "caption" LAST, after you have finalized "nodes". Structure it as exactly two clauses:
-"The image shows <scene description> with <the concrete visual objects from visual_terms>, where <sounds> would plausibly be heard."
-The <sounds> clause must name ONE short sound phrase PER NODE in "nodes", IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name you already wrote above. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, drop the "where..." clause entirely and just describe the visible objects. Before writing the caption, count your nodes and count the sounds you are about to mention — the two counts must match exactly.
+Write "caption" and "acoustic_caption" LAST, after you have finalized "nodes".
+"caption" is a single visual clause and nothing else: "The image shows <scene description> with <the concrete visual objects from visual_terms>." Do not mention any sound, noise, or anything audible in "caption". If "visual_terms" is empty, drop the "with..." part entirely and just write "The image shows <scene description>." -- never write a clause like "with no objects" or "with nothing visible".
+"acoustic_caption" must name ONE short sound phrase PER NODE in "nodes", IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name you already wrote above. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, omit "acoustic_caption" entirely (do not write an empty string). Before writing acoustic_caption, count your nodes and count the sounds you are about to mention — the two counts must match exactly.
 """.strip()
 
     json_schema_prompt = """
@@ -164,13 +164,14 @@ Return exactly this schema:
         "visual_evidence_terms": ["car"]
       }
     ],
-    "caption": "The image shows an outdoor street scene with cars and pedestrians, where footsteps and a car passing by would plausibly be heard."
+    "caption": "The image shows an outdoor street scene with cars and pedestrians.",
+    "acoustic_caption": "Footsteps and a car passing by would plausibly be heard."
   }
 }
 
-Note how the caption's sound clause has exactly 2 sounds ("footsteps", "car sounds") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, the caption would end at "...pedestrians." with no "where..." clause needed for a single missing sound, or just "...where footsteps would plausibly be heard." for that one node alone.
+Note how "acoustic_caption" names exactly 2 sounds ("footsteps", "car passing by") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, "acoustic_caption" would be just "Footsteps would plausibly be heard." for that one node alone.
 
-If there is no visually justified node, use: "nodes": []
+If there is no visually justified node, use: "nodes": [] and omit "acoustic_caption" entirely.
 
 Bad example (do NOT do this): {"label": "room", "indoor_outdoor": "indoor"} or {"label": "indoor", "indoor_outdoor": "indoor"} -- neither "room" nor "indoor" is a literal entry in the allowed scene-label list, even though a room is visible. The correct label is whichever specific entry from that list actually matches the image -- read the full list below rather than guessing.
 """.strip()
@@ -240,9 +241,9 @@ Rules:
 - Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
 
 CAPTION RULE (strict):
-Write "caption" LAST, after you have finalized "nodes". Structure it as exactly two clauses:
-"The image shows <scene description> with <the concrete visual objects from visual_terms>, where <sounds> would plausibly be heard."
-The <sounds> clause must name ONE short sound phrase PER NODE in "nodes", IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name you already wrote above. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, drop the "where..." clause entirely and just describe the visible objects. Before writing the caption, count your nodes and count the sounds you are about to mention — the two counts must match exactly.
+Write "caption" and "acoustic_caption" LAST, after you have finalized "nodes".
+"caption" is a single visual clause and nothing else: "The image shows <scene description> with <the concrete visual objects from visual_terms>." Do not mention any sound, noise, or anything audible in "caption". If "visual_terms" is empty, drop the "with..." part entirely and just write "The image shows <scene description>." -- never write a clause like "with no objects" or "with nothing visible".
+"acoustic_caption" must name ONE short sound phrase PER NODE in "nodes", IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name you already wrote above. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, omit "acoustic_caption" entirely (do not write an empty string). Before writing acoustic_caption, count your nodes and count the sounds you are about to mention — the two counts must match exactly.
 """.strip()
 
     json_schema_prompt = """
@@ -273,13 +274,14 @@ Return exactly this schema:
         "visual_evidence_terms": ["car"]
       }
     ],
-    "caption": "The image shows an outdoor street scene with cars and pedestrians, where footsteps and a car passing by would plausibly be heard."
+    "caption": "The image shows an outdoor street scene with cars and pedestrians.",
+    "acoustic_caption": "Footsteps and a car passing by would plausibly be heard."
   }
 }
 
-Note how the caption's sound clause has exactly 2 sounds ("footsteps", "car sounds") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, the caption would end at "...pedestrians." with no "where..." clause needed for a single missing sound, or just "...where footsteps would plausibly be heard." for that one node alone.
+Note how "acoustic_caption" names exactly 2 sounds ("footsteps", "car passing by") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, "acoustic_caption" would be just "Footsteps would plausibly be heard." for that one node alone.
 
-If there is no visually justified node, use: "nodes": []
+If there is no visually justified node, use: "nodes": [] and omit "acoustic_caption" entirely.
 """.strip()
 
     allowed_terms = format_allowed_visual_terms_for_prompt(allowed_visual_terms)
@@ -294,6 +296,138 @@ Allowed AudioSet node list for STAGE 2 (choose only from these):
 {allowed_nodes}
 
 {json_schema_prompt}
+""".strip()
+
+
+def build_workflow_a_free_visual_prompt() -> str:
+    """Call 1 of the five-call audioset-core flow (call_mode='five'): the only
+    call in this flow with the image attached, and the only call in any
+    call_mode with no closed list at all -- no visual-term vocabulary, no
+    AudioSet node list, no Places365 labels. Just a free read of the image,
+    same free-form scene style as phase 1 of 'two'
+    (``build_workflow_a_audioset_core_free_scene_prompt``), but without nodes
+    or caption: those are deferred to later calls once the free terms/scene
+    have been mapped onto the closed vocabularies."""
+    base_prompt = """
+Return ONLY one valid JSON object. No markdown. No explanations.
+The JSON must start with { and end with }.
+
+Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
+
+Rules:
+- "visual_terms": list every concrete, visible object you can clearly see in the image, in your own words. One short noun phrase per object (e.g. "dog", "bicycle", "coffee cup") -- no attributes, no colors, no materials, no OCR text, no locations.
+- Describe the scene type in "scene.label" using your own words, in 1 to 3 words (e.g. "busy kitchen", "mountain trail", "small office"). Do not try to match any fixed taxonomy here -- a later step will map your description onto the official scene list.
+- "indoor_outdoor" must be one of: indoor, outdoor, mixed, unknown.
+- Do not use placeholder ids, placeholder names, or ellipses anywhere in the output.
+""".strip()
+
+    json_schema_prompt = """
+Return exactly this schema:
+{
+  "visual_terms": ["person", "bicycle", "traffic light"],
+  "scene": {
+    "label": "busy urban street",
+    "indoor_outdoor": "outdoor"
+  }
+}
+""".strip()
+
+    return f"""
+{base_prompt}
+
+{json_schema_prompt}
+""".strip()
+
+
+def build_workflow_a_visual_terms_mapping_prompt(
+    *,
+    free_visual_terms: list[str],
+    allowed_visual_terms: tuple[str, ...] | list[str] = (),
+    mapping_mode: str = "discard",
+) -> str:
+    """Call 3 of the five-call audioset-core flow (call_mode='five'): a
+    text-only call that maps the free-form visual terms from call 1 onto the
+    shared 210-term detectable vocabulary.
+
+    mapping_mode='discard' (default): asymmetric with scene mapping
+    (build_workflow_a_scene_mapping_prompt), which is a forced 1-to-1 pick --
+    here a free term with no real equivalent must be DROPPED, never forced
+    onto the closest list entry, because forcing it would invent an object
+    that was never actually seen. This is the team's deliberately chosen
+    default.
+
+    mapping_mode='force': the experimental alternative -- symmetric with
+    scene mapping, every free term gets forced onto its closest allowed
+    entry, none dropped. Kept as an explicit, testable alternative (not a
+    silent replacement) because a 30-image pilot with a small local VLM
+    showed a real trade-off: it recovered more correctly-mapped terms
+    overall (better on the 5 official AudioSet metrics and on CIDEr/SPICE),
+    but also produced more forced, vaguely-related substitutions (e.g.
+    "desk"/"chair"/"lamp" -> "room") that measurably hurt CHAIRi_VG -- the
+    exact failure mode 'discard' exists to prevent. Whether that trade-off
+    holds with a larger VLM and a larger batch is an open question this flag
+    exists to let someone actually test, rather than deciding it from a
+    30-image pilot.
+
+    Both modes are kept free of concrete term examples for the same reason
+    build_workflow_a_scene_mapping_prompt is -- naming examples anchors the
+    model into repeating just those terms."""
+    if mapping_mode not in ("discard", "force"):
+        raise ValueError(f"mapping_mode must be 'discard' or 'force', got {mapping_mode!r}")
+
+    if mapping_mode == "discard":
+        mapping_rule = (
+            "- If a free-form term has no real equivalent in the allowed list, DROP it entirely. "
+            "Do not force it onto the closest-sounding entry just to keep it -- an inexact forced "
+            "match invents an object that was not actually declared."
+        )
+        empty_case_prompt_line = "If no free-form term maps onto the allowed list, use: \"visual_terms\": []"
+        empty_case_rule = "- If none of the free-form terms have a real equivalent in the allowed list, return an empty array."
+    else:
+        mapping_rule = (
+            "- Map EVERY free-form term below onto the single closest-matching entry from the allowed "
+            "list below, even if no entry is a perfect match -- always pick the closest one, the same "
+            "way a scene description gets mapped onto the closest scene label."
+        )
+        empty_case_prompt_line = "If the free-form terms list below is empty, use: \"visual_terms\": []"
+        empty_case_rule = "- If the free-form terms list below is empty, return an empty array."
+
+    base_prompt = f"""
+Return ONLY one valid JSON object. No markdown. No explanations.
+The JSON must start with {{ and end with }}.
+
+Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
+
+You are given a list of free-form visual terms already identified in an image by an earlier step that did look at the image. Your task now is purely textual: map each free-form term onto the closest-matching entry from the allowed visual-term list below.
+
+Rules:
+- Every term in your output MUST be copied EXACTLY, character-for-character, from one entry of the allowed visual-term list below.
+{mapping_rule}
+- Several free-form terms may map onto the same allowed entry -- if so, include that entry only once in the output, never duplicated.
+- Do not add any term to the output that is not a mapping of one of the free-form terms given below, even if it feels typical for this kind of scene.
+{empty_case_rule}
+""".strip()
+
+    json_schema_prompt = f"""
+Return exactly this schema:
+{{
+  "visual_terms": ["one or more exact entries from the allowed visual-term list"]
+}}
+
+{empty_case_prompt_line}
+""".strip()
+
+    allowed_terms = format_allowed_visual_terms_for_prompt(allowed_visual_terms)
+    return f"""
+{base_prompt}
+
+Allowed visual-term list (choose only from these):
+{allowed_terms}
+
+{json_schema_prompt}
+
+Free-form visual terms already identified:
+{free_visual_terms}
 """.strip()
 
 
@@ -405,13 +539,35 @@ def build_workflow_a_audioset_core_nodes_prompt(
     *,
     visual_terms: list[str],
     allowed_audioset_nodes: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    image_attached: bool = True,
 ) -> str:
-    """Stage 2 of the three-call audioset-core flow: infer AudioSet nodes from the
-    visual terms already committed to in stage 1 (see
-    ``build_workflow_a_audioset_core_scene_prompt``)."""
-    base_prompt = """
+    """Stage 2 of the three-call audioset-core flow (image_attached=True): infer
+    AudioSet nodes from the visual terms already committed to in stage 1 (see
+    ``build_workflow_a_audioset_core_scene_prompt``). Also reused, text-only
+    (image_attached=False), as call 4 of the five-call flow, where the visual
+    terms were instead produced and mapped by two earlier calls that did not
+    see the image at this step -- ``build_workflow_a_free_visual_prompt`` then
+    ``build_workflow_a_visual_terms_mapping_prompt``."""
+    if image_attached:
+        image_rule = (
+            "- An image is attached so you can look closely and confirm details (e.g. what shape an "
+            "object has, whether it's really the sound source you think it is) — but \"visual-terms to "
+            "infer from\" below is the complete, closed list of objects you are allowed to write about "
+            "here. You may look at the image, but only write down objects from that list: if you notice "
+            "something in the image that is not in that list, ignore it for this step, do not name it, "
+            "describe it, or base a node on it, even if it feels like a natural thing to see in this kind "
+            "of scene."
+        )
+    else:
+        image_rule = (
+            "- You are not looking at the image for this step. \"visual-terms to infer from\" below is "
+            "the complete and closed set of objects already identified in the image by an earlier step -- "
+            "treat it as the only source of truth and only write down objects from that list."
+        )
+
+    base_prompt = f"""
 Return ONLY one valid JSON object. No markdown. No explanations.
-The JSON must start with { and end with }.
+The JSON must start with {{ and end with }}.
 
 Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
 This section is NOT actual audio recognition. It contains acoustically plausible AudioSet ontology nodes inferred only from explicit visual evidence in the image.
@@ -422,7 +578,7 @@ Allowed node_type values: visible_source, visible_action.
 Only propose a node when you can point to the specific visible object or action that produces the sound. Do not propose a node for ambient/background sound implied only by the scene type in general, and do not propose a node you are not reasonably sure about.
 
 Rules:
-- An image is attached so you can look closely and confirm details (e.g. what shape an object has, whether it's really the sound source you think it is) — but "visual-terms to infer from" below is the complete, closed list of objects you are allowed to write about here. You may look at the image, but only write down objects from that list: if you notice something in the image that is not in that list, ignore it for this step, do not name it, describe it, or base a node on it, even if it feels like a natural thing to see in this kind of scene.
+{image_rule}
 - "nodes": for each AudioSet node you infer, derive it FROM the terms in "visual-terms to infer from". Every node's "visual_evidence_terms" must be a non-empty subset of that list — never introduce a term there that is not already in it, and never leave it empty: every node must cite at least one visual term that grounds it, with no exceptions.
 - The "evidence" text itself must also only reference objects from "visual-terms to infer from" — do not mention an object in "evidence" that is not in that list, even in passing.
 - Every node must be supported by explicit visual evidence described in "evidence".
@@ -498,15 +654,16 @@ The JSON must start with { and end with }.
 Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
 
 CAPTION RULE (strict):
-Structure it as exactly two clauses:
-"The image shows <scene description> with <the concrete visual objects from visual_terms>, where <sounds> would plausibly be heard."
-The <sounds> clause must name ONE short sound phrase PER NODE in "nodes" below, IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name already given below. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, drop the "where..." clause entirely and just describe the visible objects. Before writing the caption, count the nodes below and count the sounds you are about to mention — the two counts must match exactly.
+Write "caption" and "acoustic_caption" as two separate fields.
+"caption" is a single visual clause and nothing else: "The image shows <scene description> with <the concrete visual objects from visual_terms>." Do not mention any sound, noise, or anything audible in "caption". If "visual_terms" is empty, drop the "with..." part entirely and just write "The image shows <scene description>." -- never write a clause like "with no objects" or "with nothing visible".
+"acoustic_caption" must name ONE short sound phrase PER NODE in "nodes" below, IN THE SAME ORDER, and NOTHING ELSE — every sound you mention must come directly from an audioset_name already given below. Do not add, generalize, or infer any extra sound that has no matching node. If "nodes" is empty, omit "acoustic_caption" entirely (do not write an empty string). Before writing acoustic_caption, count the nodes below and count the sounds you are about to mention — the two counts must match exactly.
 """.strip()
 
     json_schema_prompt = """
 Return exactly this schema:
 {
-  "caption": "one concise caption"
+  "caption": "one concise caption",
+  "acoustic_caption": "one concise acoustic caption, or omit this field entirely if nodes is empty"
 }
 
 Example: given
@@ -516,12 +673,13 @@ Example: given
     {"audioset_name": "Walk, footsteps", ...},
     {"audioset_name": "Car passing by", ...}
   ]
-the caption would be:
+the output would be:
 {
-  "caption": "The image shows an outdoor street scene with cars and pedestrians, where footsteps and a car passing by would plausibly be heard."
+  "caption": "The image shows an outdoor street scene with cars and pedestrians.",
+  "acoustic_caption": "Footsteps and a car passing by would plausibly be heard."
 }
 
-Note the caption's sound clause has exactly 2 sounds ("footsteps", "car passing by") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, the caption would end "...where footsteps would plausibly be heard." with no second sound mentioned.
+Note "acoustic_caption" names exactly 2 sounds ("footsteps", "car passing by") because "nodes" has exactly 2 entries — one per node, same order, nothing extra. If "nodes" only had the first entry, "acoustic_caption" would be just "Footsteps would plausibly be heard." with no second sound mentioned. If "nodes" is empty, omit "acoustic_caption" entirely.
 """.strip()
 
     return f"""
