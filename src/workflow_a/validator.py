@@ -287,11 +287,19 @@ def normalize_audioset_core_payload(
     # detectable-term vocabulary -- so a node can't cite an object the model
     # never actually claimed to see. If missing/empty, skip this extra check
     # rather than rejecting every node's terms against an empty set.
-    declared_visual_terms = {
-        normalize_label(term, default="")
-        for term in (core.get("visual_terms") or [])
-        if isinstance(term, str) and normalize_label(term, default="")
-    }
+    declared_visual_terms_list = []
+    seen_declared_terms = set()
+    for term in core.get("visual_terms") or []:
+        if not isinstance(term, str):
+            continue
+        normalized_term = normalize_label(term, default="")
+        if not normalized_term or normalized_term not in allowed_visual_terms:
+            continue
+        if normalized_term in seen_declared_terms:
+            continue
+        declared_visual_terms_list.append(normalized_term)
+        seen_declared_terms.add(normalized_term)
+    declared_visual_terms = set(declared_visual_terms_list)
 
     scene_label = normalize_label(raw_scene.get("label"), default="")
     if scene_label not in allowed_scene_labels_normalized:
@@ -375,7 +383,14 @@ def normalize_audioset_core_payload(
     caption = str(core.get("caption") or "A visual scene.").strip()
     core["caption"] = caption if caption.endswith(".") else caption + "."
 
-    core.pop("visual_terms", None)
+    raw_acoustic_caption = core.get("acoustic_caption")
+    if isinstance(raw_acoustic_caption, str) and raw_acoustic_caption.strip():
+        acoustic_caption = raw_acoustic_caption.strip()
+        core["acoustic_caption"] = acoustic_caption if acoustic_caption.endswith(".") else acoustic_caption + "."
+    else:
+        core["acoustic_caption"] = None
+
+    core["visual_terms"] = declared_visual_terms_list
 
     return core
 
