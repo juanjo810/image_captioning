@@ -16,6 +16,7 @@ Hay dos rutas de salida, elegidas con `--legacy-visual-core`:
 | Generación `AudioSetCoreJSON` | Implementado (ruta por defecto) |
 | `--call-mode single` / `three` / `two` / `five` | Implementado |
 | `--visual-terms-mapping discard\|force` | Implementado, solo con `--call-mode five` |
+| `--schema-examples concrete\|generic` | Implementado, solo con `--call-mode five` |
 | Generación `CoreJSON` legacy | Implementado (`--legacy-visual-core`) |
 | `acoustic_semantics.nodes` legacy | Implementado (`--include-audioset-nodes`, solo con `--legacy-visual-core`) |
 | Backend llama.cpp OpenAI-compatible | Único backend |
@@ -43,6 +44,7 @@ Ejecuta siempre como módulo desde la raíz del repo. `python scripts/run_workfl
 | `--legacy-visual-core` | off | Usa el `CoreJSON` clásico en lugar del audioset core. |
 | `--call-mode` | `single` | `single`, `three`, `two` o `five`. Solo tiene sentido sin `--legacy-visual-core`. |
 | `--visual-terms-mapping` | `discard` | `discard` o `force`. Solo tiene efecto con `--call-mode five` (ver abajo). |
+| `--schema-examples` | `concrete` | `concrete` o `generic`. Solo tiene efecto con `--call-mode five` (ver abajo). |
 
 **No existen `--model` ni `--temperature`.** El único backend es llama.cpp, y el adaptador envía únicamente `model`, `messages` y `max_tokens`: temperatura, top-p y demás sampling se configuran al lanzar `llama-server`, no desde este CLI.
 
@@ -112,6 +114,11 @@ Cinco llamadas: la primera libre y con imagen, las cuatro siguientes de texto y 
 - **`discard`** (por defecto): un término libre sin equivalente real en la lista de 210 se **descarta**, nunca se fuerza al más parecido. Forzar el mapeo podría inventaría un objeto que no se declaró.
 - **`force`**: alternativa experimental, simétrica con el mapeo de escena — todo término libre se fuerza a su entrada más cercana, ninguno se descarta. Expuesto como opción para poder comparar ambas políticas antes de decidir cuál queda como *default*. `metadata.visual_terms_mapping` registra en cada predicción qué política se usó, para poder agrupar resultados sin adivinarlo.
 
+**Ejemplo de JSON en los pasos 1 y 4, `--schema-examples`:** el bloque "Return exactly this schema" de esos dos *prompts* puede mostrar un ejemplo con contenido y cantidad fijos (p. ej. tres `visual_terms` concretos, dos nodos concretos) o uno genérico con texto de relleno y sin cantidad fija:
+
+- **`concrete`** (por defecto): ejemplo con contenido/cantidad fijos — el mismo estilo que usa siempre `--call-mode three` en su propio *prompt* de nodos (que no tiene este flag).
+- **`generic`**: reemplaza esos ejemplos por texto de relleno sin cantidad ni contenido concretos, para evitar que un ejemplo de formato funcione como anclaje de *few-shot* sobre cuántos/qué términos o nodos devolver. Alternativa experimental expuesta como opción real, no un reemplazo del *default* — igual que `--visual-terms-mapping`, pensada para comparar ambas antes de decidir cuál (si alguna) debería sustituir a `concrete`. `metadata.schema_examples` registra qué variante produjo cada predicción.
+
 **Dos filtros de seguridad, sin coste de llamada VLM extra, entre pasos:**
 
 - Tras el paso 2: si la escena mapeada no está en la allow-list de Places365, se **saltan los pasos 3–5** y se devuelve directamente — la validación final la rechazaría de todos modos (es un mapeo forzado 1→1), así que el corte ahorra tres llamadas sin cambiar el resultado.
@@ -119,7 +126,7 @@ Cinco llamadas: la primera libre y con imagen, las cuatro siguientes de texto y 
 
 **Si `visual_terms` sale vacío tras el paso 3** (ningún término libre tenía equivalente en el vocabulario cerrado), el paso 4 se **salta** igual que el corte de escena: ningún nodo podría tener evidencia válida sobre una lista vacía, así que no tiene sentido gastar la llamada. El paso 5 (caption) sí recibe `visual_terms=[]`/`nodes=[]` y sabe qué hacer: escribe solo la escena, sin la cláusula "with..." y sin `acoustic_caption`. **El resultado final es una predicción válida, no un fallo** — ver "Caption y `acoustic_caption`" más abajo.
 
-`prompt_version` en este modo es `workflow_a_audioset_core_five_call_v1`, y `metadata` añade `n_free_visual_terms` / `n_mapped_visual_terms` (para poder medir la tasa de descarte del paso 3 sin reprocesar `raw/`).
+`prompt_version` en este modo es `workflow_a_audioset_core_five_call_v1`, y `metadata` añade `n_free_visual_terms` / `n_mapped_visual_terms` (para poder medir la tasa de descarte del paso 3 sin reprocesar `raw/`) y `schema_examples`.
 
 En `raw/`, las cinco llamadas quedan concatenadas bajo cabeceras `=== CALL 1 ===` … `=== CALL 5 ===`, más dos secciones parseadas propias (`=== CALL 1 FREE TERMS (parsed) ===` y `=== CALL 1 SCENE (free-form, parsed) ===`), igual que hace `two` con su fase 1.
 
