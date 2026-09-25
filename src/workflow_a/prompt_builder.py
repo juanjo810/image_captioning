@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from metrics.audioset_leaf_vocab import AudioSetLeafRule
 from src.workflow_a.audioset_nodes import (
     format_allowed_audioset_nodes_for_prompt,
     format_allowed_visual_terms_for_prompt,
+    format_audioset_leaf_rules_for_prompt,
 )
 
 
@@ -700,6 +703,128 @@ Allowed AudioSet node list (choose only from these):
 
 visual-terms to infer from (choose only from these):
 {visual_terms}
+""".strip()
+
+
+def build_workflow_a_audioset_core_nodes_from_rules_prompt(
+    *,
+    visual_terms: list[str],
+    leaf_rules: tuple[AudioSetLeafRule, ...] | list[AudioSetLeafRule],
+    schema_examples: str = "concrete",
+) -> str:
+    """Rule-guided, text-only variant of call 4 of the five-call flow: instead
+    of the bare ``id | name`` AudioSet list, the model receives Workflow B's
+    leaf rules (``id | name | requires: ...``, see
+    ``format_audioset_leaf_rules_for_prompt``) and is told to apply them --
+    one node per satisfied rule, and only for satisfied rules.
+
+    The rules are the mapping itself, so the free-judgement guidance of
+    ``build_workflow_a_audioset_core_nodes_prompt`` (no speech from a visible
+    person, no ambient sound implied by the scene, "plausible sound" pairing)
+    is left out on purpose: several leaf rules contradict it directly (e.g.
+    "Male speech, man speaking" requires only "man"). Nothing downstream
+    checks that the model actually followed the rules -- its mistakes are
+    part of Workflow A's output, not filtered away.
+
+    schema_examples picks the JSON-schema example style exactly as in
+    ``build_workflow_a_audioset_core_nodes_prompt``: 'concrete' shows two
+    real nodes, 'generic' a single placeholder entry with no fixed count."""
+    if schema_examples not in ("concrete", "generic"):
+        raise ValueError(f"schema_examples must be 'concrete' or 'generic', got {schema_examples!r}")
+
+    base_prompt = """
+Return ONLY one valid JSON object. No markdown. No explanations.
+The JSON must start with { and end with }.
+
+Use ONLY the fields shown in the requested schema. Do not add attributes, colors, materials, OCR text, locations, or extra keys.
+This section is NOT actual audio recognition. It maps visual terms already identified in an image onto AudioSet ontology nodes, following the mapping rules listed below.
+
+You are not looking at the image for this step. "visual-terms to infer from" below is the complete and closed set of objects already identified in the image by an earlier step -- treat it as the only source of truth.
+
+How the mapping rules work:
+- Each line of the rule list has the form: audioset_id | audioset_name | requires: <condition>.
+- "A AND B" means both A and B must be present in "visual-terms to infer from".
+- "(A OR B)" means at least one of A or B must be present.
+- A rule is satisfied when every part joined by AND has at least one of its terms present in "visual-terms to infer from".
+
+Rules:
+- Propose one node for every rule that is satisfied, and only for rules that are satisfied. Do not propose a node whose rule is not satisfied.
+- Each node's audioset_id and audioset_name must come from the SAME line of the rule list — never mix an id from one line with the name of another, and never invent values that are not in the list.
+- "visual_evidence_terms": the terms from "visual-terms to infer from" that satisfy that node's rule. It must never be empty and must never contain a term that is not in "visual-terms to infer from".
+- "evidence": a short sentence naming those same terms. Do not mention any object that is not in "visual-terms to infer from".
+- node_type: visible_source if the sound comes from the object/animal/instrument itself, visible_action if it comes from an action (e.g. walking, running, clapping).
+- node_id values must be unique and sequential: n1, n2, n3, and so on.
+- If no rule is satisfied, return an empty "nodes" array.
+
+Worked example (these three rules are only an illustration, they are not part of the rule list below):
+- /x/a | Sound A | requires: dog
+- /x/b | Sound B | requires: man AND microphone
+- /x/c | Sound C | requires: (car OR bus) AND road
+If "visual-terms to infer from" is ["dog", "bus", "road", "man"]:
+- Sound A is satisfied by "dog" -> node with visual_evidence_terms ["dog"].
+- Sound B is NOT satisfied: "man" is present but "microphone" is not -> no node.
+- Sound C is satisfied by "bus" and "road" -> node with visual_evidence_terms ["bus", "road"].
+""".strip()
+
+    if schema_examples == "concrete":
+        json_schema_prompt = """
+Return exactly this schema:
+{
+  "nodes": [
+    {
+      "node_id": "n1",
+      "audioset_id": "/m/01m2v",
+      "audioset_name": "Computer keyboard",
+      "node_type": "visible_source",
+      "evidence": "a keyboard is present",
+      "visual_evidence_terms": ["keyboard"]
+    },
+    {
+      "node_id": "n2",
+      "audioset_id": "/t/dd00134",
+      "audioset_name": "Car passing by",
+      "node_type": "visible_source",
+      "evidence": "a car on the road",
+      "visual_evidence_terms": ["car", "road"]
+    }
+  ]
+}
+
+If no rule is satisfied, use: "nodes": []
+"""
+    else:
+        json_schema_prompt = """
+Return exactly this schema:
+{
+  "nodes": [
+    {
+      "node_id": "n1",
+      "audioset_id": "<exact id from a satisfied line of the rule list below>",
+      "audioset_name": "<exact name from that same line>",
+      "node_type": "visible_source or visible_action",
+      "evidence": "<the visual terms that satisfy this rule>",
+      "visual_evidence_terms": ["<terms from visual-terms to infer from that satisfy the rule>"]
+    }
+  ]
+}
+
+This example shows the shape of a single entry, not the expected count: include one entry (n1, n2, n3, ...) for every satisfied rule, in any number from zero upward.
+
+If no rule is satisfied, use: "nodes": []
+"""
+
+    rules = format_audioset_leaf_rules_for_prompt(leaf_rules)
+
+    return f"""
+{base_prompt}
+
+{json_schema_prompt.strip()}
+
+AudioSet mapping rules (choose only from these):
+{rules}
+
+visual-terms to infer from:
+{json.dumps(visual_terms, ensure_ascii=False)}
 """.strip()
 
 
