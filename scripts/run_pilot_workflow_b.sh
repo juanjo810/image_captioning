@@ -7,7 +7,7 @@ set -e
 #   legacy: CoreJSON clásico, con --legacy-visual-core --hoi upt (comportamiento original).
 MODE="${1:-audioset}"
 
-IMAGE_DIR="${VG_SUBSET:-/home/jovyan/projects/data/subsets/vg_test_100}/images"
+IMAGE_DIR="${VG_SUBSET:-/home/jovyan/projects/data/subsets/vg_2000_news}"
 
 CONFIGS=(
   "grounding_dino resnet50"
@@ -18,7 +18,7 @@ CONFIGS=(
 
 case "$MODE" in
   audioset)
-    OUT_BASE="outputs/pilot_vg/visual_json_audioset"
+    OUT_BASE="outputs/5000/workflow_b"
     EXTRA_ARGS=()
     ;;
   legacy)
