@@ -107,9 +107,38 @@ python -m scripts.evaluation.evaluate_all_caption_metrics \
 
 `--clip-model-name` por defecto es `openai/clip-vit-base-patch16`.
 
+`--metrics` elige qué métricas calcular, entre `cider`, `spice`, `clipscore` y `chair` (por defecto, las cuatro). Cada métrica solo exige sus propios argumentos: `--caption-refs` para `cider`/`spice`, `--image-dir` para `clipscore` y `--vg-object-refs` + `--object-alias` para `chair`. El modelo CLIP solo se carga si se pide `clipscore`, y el CSV de salida solo contiene las columnas de las métricas calculadas. Por ejemplo, para recalcular solo CIDEr y CHAIR:
+
+```bash
+python -m scripts.evaluation.evaluate_all_caption_metrics \
+  --metrics cider chair \
+  --manifest outputs/manifests/predictions.csv \
+  --caption-refs data/vg_refs/vg_caption_references.csv \
+  --vg-object-refs data/vg_refs/vg_object_references.csv \
+  --object-alias data/aliases/object_alias.csv \
+  --output outputs/metrics/caption_cider_chair.csv
+```
+
+### Tokenización de CIDEr y SPICE
+
+Referencias y captions pasan por `PTBTokenizer` (el pipeline estándar de coco-caption) antes de calcular CIDEr y SPICE. Sin ese paso, el caption conservaba mayúsculas y puntuación mientras que las referencias ya estaban normalizadas, y `"person,"` nunca coincidía con `"person"`. CIDEr es muy sensible a esto; SPICE apenas, porque analiza el texto con su propio parser.
+
+Junto al F1 de SPICE (`SPICE`), el CSV incluye su precisión (`SPICE_P`) y su recall (`SPICE_R`), promediados por imagen. SPICE compara contra la unión de los grafos de escena de todas las referencias. Con decenas de region descriptions por imagen, esa unión tiene cientos de tuplas, así que el recall queda cerca de 0 aunque la mayoría de las tuplas del caption sean correctas. Sin la precisión, el F1 no se puede interpretar bien.
+
+Si no se encuentra ninguna imagen en `--image-dir`, la celda de `CLIPScore` sale vacía (con `n_clipscore = 0`), no `0.0`.
+
 ### CHAIR y el formato audioset
 
 `CHAIRi_VG` se calcula para toda fila, sea cual sea el esquema: las referencias VG son ground truth externo, independiente del formato de la predicción.
+
+Extracción de objetos del caption:
+
+- El vocabulario sale de los nombres de objeto anotados en VG, que tienen ruido (hay objetos anotados como `"an"`, `"there"` o `"outdoor scene"`). Se excluyen las stopwords en inglés (salvo las que también son objetos plausibles, como `fire`, `back` o `top`) y las entradas que contienen palabras de la plantilla (`image`, `scene`, `shows` y los valores de `indoor_outdoor` que inserta la plantilla: `indoor`, `outdoor`, `mixed`).
+- Se elimina del caption la etiqueta de escena (`scene_label` del manifest): CHAIR mide alucinación de objetos, y la escena se evalúa aparte con `evaluate_scene_awareness.py`.
+- Un objeto compuesto no puede casar a través de la puntuación (`"a computer, keyboard"` no produce `computer keyboard`), y cada tramo emparejado se consume para que una entrada más corta contenida en él no cuente dos veces.
+- Singular y plural se igualan: el texto del caption, el vocabulario de VG y las referencias (objetos VG y `visual_terms`) pasan por la misma función `singularize_phrase` antes de compararse. Así `"two buses"` cuenta como `bus` y `person` casa con `people`. Son reglas de sufijo (`-sses/-xes/-ches/-shes` → sin `-es`, `-ies` → `-y`, resto → sin `-s`, protegiendo `-ss`/`-us` y palabras de 3 letras o menos) más una lista de irregulares y de singulares acabados en `s`. Se ha comprobado exhaustivamente sobre los 210 términos que puede nombrar un caption (singular, plural y plurales alternativos, contra un oráculo independiente), y sobre los pares singular/plural del archivo de alias de VG casan el 97 %; el resto son abreviaturas y erratas del propio VG. Como la misma función se aplica en ambos lados, una palabra plegada de forma imperfecta (`glasses` → `glass`) se pliega igual en todos, pero dos objetos distintos pueden coincidir (gafas y vaso). **No hay sinónimos**: `person` en el caption no casa con `man` en VG.
+
+Los captions sin ningún objeto mencionado se excluyen del promedio de `CHAIRi_VG`/`CHAIRi_JSON` (0 de 0 no está definido), y `n_chair` cuenta los captions que sí contribuyen. Las columnas `avg_*` siguen promediando sobre todas las filas. Como el caption se genera a partir de `visual_terms`, `CHAIRi_JSON` debería salir cercano a 0: un valor alto indica un fallo del extractor.
 
 `CHAIRi_JSON` y `avg_hallucinated_json` comparan la caption contra `core.entities` en el esquema legacy, o contra `core.visual_terms` en `AudioSetCoreJSON` — ambos son la cuenta propia del JSON de qué hay visualmente presente, solo que bajo un nombre de campo distinto. `load_json_entities` devuelve `None` (no un conjunto vacío) únicamente cuando el campo que le corresponde a ese esquema falta del todo — sin `core.entities`, o un `AudioSetCoreJSON` sin la clave `visual_terms` (predicciones generadas antes de que ese campo existiera). Esas filas se **excluyen** del promedio, en vez de contarlas como 100 % de alucinación. Si ninguna fila del grupo tenía datos, la celda del CSV sale vacía, no `0.0`.
 
