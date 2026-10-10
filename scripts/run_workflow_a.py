@@ -114,6 +114,21 @@ def main() -> None:
         ),
     )
 
+    parser.add_argument(
+        "--nodes-mode",
+        choices=["names", "leaf_rules", "deterministic"],
+        default="names",
+        help=(
+            "Only meaningful with --call-mode five. How call 4 derives AudioSet nodes "
+            "from the mapped visual_terms. 'names' (default) shows the VLM the bare "
+            "AudioSet id | name list -- the original behavior, kept for reproducibility. "
+            "'leaf_rules' shows it Workflow B's leaf rules instead (id | name | requires: "
+            "...), as instructions the model applies itself. 'deterministic' makes no VLM "
+            "call for call 4: the same leaf rules are applied in Python over the "
+            "visual_terms."
+        ),
+    )
+
     args = parser.parse_args()
 
     model_id = args.model_id or "local-vlm"
@@ -143,6 +158,7 @@ def main() -> None:
                     use_legacy_core=args.legacy_visual_core,
                     call_mode=args.call_mode,
                     visual_terms_mapping=args.visual_terms_mapping,
+                    nodes_mode=args.nodes_mode,
                 )
             except Exception as exc:
                 print(f"FAILED: {image_path.name} -> {exc}")
@@ -156,6 +172,7 @@ def main() -> None:
             use_legacy_core=args.legacy_visual_core,
             call_mode=args.call_mode,
             visual_terms_mapping=args.visual_terms_mapping,
+            nodes_mode=args.nodes_mode,
         )
 
 

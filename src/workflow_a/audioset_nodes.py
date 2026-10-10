@@ -2,6 +2,8 @@ from __future__ import annotations
 
 """Allowed AudioSet nodes for optional Workflow A acoustic semantics."""
 
+from typing import Any
+
 from metrics.audioset_leaf_vocab import (
     AudioSetLeafRule,
     allowed_audioset_leaf_nodes,
@@ -43,6 +45,39 @@ def format_audioset_leaf_rules_for_prompt(rules: tuple[AudioSetLeafRule, ...] | 
         + " AND ".join(format_group(group) for group in rule.all_of)
         for rule in rules
     )
+
+
+def deterministic_nodes_from_visual_terms(
+    visual_terms: list[str],
+    rules: tuple[AudioSetLeafRule, ...] | list[AudioSetLeafRule],
+) -> list[dict[str, Any]]:
+    """Apply Workflow B's leaf rules in Python over ``visual_terms``, no VLM.
+
+    Same matching as ``_match_leaf_rules`` in Workflow B's audioset projection,
+    over a list of terms instead of detections: a rule fires when every
+    ``all_of`` group has at least one of its alternatives in ``visual_terms``.
+    Each fired rule becomes one ``visible_source`` node whose
+    ``visual_evidence_terms`` are the terms (a subset of ``visual_terms``) that
+    satisfied its groups. Returns node dicts in the shape the VLM would emit,
+    so they go through the same normalization/validation.
+    """
+    present = set(visual_terms)
+    nodes: list[dict[str, Any]] = []
+    for rule in rules:
+        if not all(any(term in present for term in group) for group in rule.all_of):
+            continue
+        firing_terms = sorted(
+            {term for group in rule.all_of for term in group if term in present}
+        )
+        nodes.append({
+            "node_id": f"n{len(nodes) + 1}",
+            "audioset_id": rule.id,
+            "audioset_name": rule.name,
+            "node_type": "visible_source",
+            "evidence": f"Leaf rule satisfied by: {', '.join(firing_terms)}",
+            "visual_evidence_terms": firing_terms,
+        })
+    return nodes
 
 
 def default_allowed_visual_terms() -> tuple[str, ...]:

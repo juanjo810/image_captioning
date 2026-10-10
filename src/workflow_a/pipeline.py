@@ -5,9 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from metrics.audioset_leaf_vocab import audioset_leaf_rules
 from src.workflow_a.audioset_nodes import (
     default_allowed_audioset_nodes,
     default_allowed_visual_terms,
+    deterministic_nodes_from_visual_terms,
 )
 from src.workflow_a.parser import extract_json_block
 from src.workflow_a.prompt_builder import (
@@ -17,6 +19,7 @@ from src.workflow_a.prompt_builder import (
     build_workflow_a_scene_mapping_prompt,
     build_workflow_a_audioset_core_scene_prompt,
     build_workflow_a_audioset_core_nodes_prompt,
+    build_workflow_a_audioset_core_nodes_from_rules_prompt,
     build_workflow_a_audioset_core_caption_prompt,
     build_workflow_a_free_visual_prompt,
     build_workflow_a_visual_terms_mapping_prompt,
@@ -28,6 +31,18 @@ from src.workflow_a.validator import (
     validate_legacy_workflow_a_output,
     validate_audioset_workflow_a_output,
 )
+
+
+# How call 4 of call_mode='five' derives nodes (see _generate_five_call).
+NODES_MODES = ("names", "leaf_rules", "deterministic")
+
+# Appended to the five-call prompt_version for the non-default nodes_mode, so
+# a prediction's prompt_version identifies which call-4 variant produced it.
+_NODES_MODE_PROMPT_VERSION_SUFFIX = {
+    "names": "",
+    "leaf_rules": "+call4_leaf_rules_v1",
+    "deterministic": "+call4_leaf_rules_deterministic_v1",
+}
 
 
 @dataclass
@@ -64,22 +79,28 @@ class WorkflowAPipeline:
         use_legacy_core: bool = False,
         call_mode: str = "single",
         visual_terms_mapping: str = "discard",
+        nodes_mode: str = "names",
     ) -> dict[str, Any]:
         if visual_terms_mapping not in ("discard", "force"):
             raise ValueError(
                 f"visual_terms_mapping must be 'discard' or 'force', got {visual_terms_mapping!r}"
+            )
+        if nodes_mode not in NODES_MODES:
+            raise ValueError(
+                f"nodes_mode must be one of {list(NODES_MODES)}, got {nodes_mode!r}"
             )
 
         generators = {
             "single": self._generate_single_call,
             "three": self._generate_three_call,
             "two": self._generate_two_call,
-            # Only call 3 of 'five' reads visual_terms_mapping (see
-            # _generate_five_call) -- bound here via a small wrapper instead
-            # of threading an unused parameter through the other three
-            # generators, which otherwise share an identical signature.
+            # Only calls 3 and 4 of 'five' read visual_terms_mapping and
+            # nodes_mode (see _generate_five_call) -- bound here via a small
+            # wrapper instead of threading unused parameters through the
+            # other three generators, which otherwise share an identical
+            # signature.
             "five": lambda *args: self._generate_five_call(
-                *args, visual_terms_mapping=visual_terms_mapping,
+                *args, visual_terms_mapping=visual_terms_mapping, nodes_mode=nodes_mode,
             ),
         }
         if call_mode not in generators:
@@ -349,6 +370,7 @@ class WorkflowAPipeline:
         max_new_tokens,
         *,
         visual_terms_mapping: str = "discard",
+        nodes_mode: str = "names",
     ) -> _StagedOutput:
         """Call 1 (free visual_terms + free scene, image attached, the only
         call in this flow that sees the image and the only call in any
@@ -399,6 +421,16 @@ class WorkflowAPipeline:
         larger batch before deciding whether to keep 'discard' as the
         default -- a 30-image pilot with a small local VLM found a genuine
         trade-off between the two, not a clear winner.
+
+        nodes_mode picks how call 4 derives nodes from the mapped
+        visual_terms: 'names' (default, the original behavior, kept for
+        reproducibility) shows the VLM the bare AudioSet id | name list;
+        'leaf_rules' shows it Workflow B's leaf rules instead
+        (build_workflow_a_audioset_core_nodes_from_rules_prompt) as
+        instructions, with the model still doing the matching; 'deterministic'
+        makes no VLM call at all and applies those same rules in Python
+        (deterministic_nodes_from_visual_terms). Nothing filters the model's
+        nodes by the rules in 'leaf_rules' -- only the usual validator runs.
         """
         call1_prompt = build_workflow_a_free_visual_prompt()
         call1_raw = self.vlm.generate(
@@ -461,6 +493,7 @@ class WorkflowAPipeline:
                 extra_metadata={
                     "n_free_visual_terms": len(free_visual_terms),
                     "visual_terms_mapping": visual_terms_mapping,
+                    "nodes_mode": nodes_mode,
                 },
             )
 
@@ -489,11 +522,24 @@ class WorkflowAPipeline:
             visual_terms.append(normalized_term)
             seen_visual_terms.add(normalized_term)
 
-        if visual_terms:
-            call4_prompt = build_workflow_a_audioset_core_nodes_prompt(
-                visual_terms=visual_terms, allowed_audioset_nodes=allowed_audioset_nodes,
-                image_attached=False,
-            )
+        call4_header = "=== CALL 4: nodes ==="
+        if visual_terms and nodes_mode == "deterministic":
+            # No VLM call: the leaf rules (same source as Workflow B) are
+            # applied in Python, so the raw/ section shows the computed nodes
+            # instead of a model response.
+            nodes = deterministic_nodes_from_visual_terms(visual_terms, audioset_leaf_rules())
+            call4_header = "=== CALL 4 (deterministic leaf rules, no VLM) ==="
+            call4_raw = json.dumps({"nodes": nodes}, ensure_ascii=False)
+        elif visual_terms:
+            if nodes_mode == "leaf_rules":
+                call4_prompt = build_workflow_a_audioset_core_nodes_from_rules_prompt(
+                    visual_terms=visual_terms, leaf_rules=audioset_leaf_rules(),
+                )
+            else:
+                call4_prompt = build_workflow_a_audioset_core_nodes_prompt(
+                    visual_terms=visual_terms, allowed_audioset_nodes=allowed_audioset_nodes,
+                    image_attached=False,
+                )
             call4_raw = self.vlm.generate(
                 image_path=None, prompt=call4_prompt, max_new_tokens=max_new_tokens
             )
@@ -525,7 +571,7 @@ class WorkflowAPipeline:
         raw_output = (
             calls_1_2_raw_output
             + "\n\n=== CALL 3: visual_terms mapping ===\n" + call3_raw
-            + "\n\n=== CALL 4: nodes ===\n" + call4_raw
+            + "\n\n" + call4_header + "\n" + call4_raw
             + "\n\n=== CALL 5: caption ===\n" + call5_raw
         )
         return _StagedOutput(
@@ -539,6 +585,7 @@ class WorkflowAPipeline:
                 "n_free_visual_terms": len(free_visual_terms),
                 "n_mapped_visual_terms": len(visual_terms),
                 "visual_terms_mapping": visual_terms_mapping,
+                "nodes_mode": nodes_mode,
             },
         )
 
@@ -642,6 +689,10 @@ class WorkflowAPipeline:
                 "two": "workflow_a_audioset_core_two_call_v1",
                 "five": "workflow_a_audioset_core_five_call_v1",
             }[call_mode]
+            if call_mode == "five":
+                prompt_version += _NODES_MODE_PROMPT_VERSION_SUFFIX[
+                    (extra_metadata or {}).get("nodes_mode", "names")
+                ]
 
         metadata = {
             "workflow": "A",

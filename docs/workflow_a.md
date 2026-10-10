@@ -16,6 +16,7 @@ Hay dos rutas de salida, elegidas con `--legacy-visual-core`:
 | Generación `AudioSetCoreJSON` | Implementado (ruta por defecto) |
 | `--call-mode single` / `three` / `two` / `five` | Implementado |
 | `--visual-terms-mapping discard\|force` | Implementado, solo con `--call-mode five` |
+| `--nodes-mode names\|leaf_rules\|deterministic` | Implementado, solo con `--call-mode five` |
 | Generación `CoreJSON` legacy | Implementado (`--legacy-visual-core`) |
 | `acoustic_semantics.nodes` legacy | Implementado (`--include-audioset-nodes`, solo con `--legacy-visual-core`) |
 | Backend llama.cpp OpenAI-compatible | Único backend |
@@ -43,6 +44,7 @@ Ejecuta siempre como módulo desde la raíz del repo. `python scripts/run_workfl
 | `--legacy-visual-core` | off | Usa el `CoreJSON` clásico en lugar del audioset core. |
 | `--call-mode` | `single` | `single`, `three`, `two` o `five`. Solo tiene sentido sin `--legacy-visual-core`. |
 | `--visual-terms-mapping` | `discard` | `discard` o `force`. Solo tiene efecto con `--call-mode five` (ver abajo). |
+| `--nodes-mode` | `names` | `names`, `leaf_rules` o `deterministic`. Solo tiene efecto con `--call-mode five` (ver abajo). |
 
 **No existen `--model` ni `--temperature`.** El único backend es llama.cpp, y el adaptador envía únicamente `model`, `messages` y `max_tokens`: temperatura, top-p y demás sampling se configuran al lanzar `llama-server`, no desde este CLI.
 
@@ -112,6 +114,25 @@ Cinco llamadas: la primera libre y con imagen, las cuatro siguientes de texto y 
 - **`discard`** (por defecto): un término libre sin equivalente real en la lista de 210 se **descarta**, nunca se fuerza al más parecido. Forzar el mapeo podría inventaría un objeto que no se declaró.
 - **`force`**: alternativa experimental, simétrica con el mapeo de escena — todo término libre se fuerza a su entrada más cercana, ninguno se descarta. Expuesto como opción para poder comparar ambas políticas antes de decidir cuál queda como *default*. `metadata.visual_terms_mapping` registra en cada predicción qué política se usó, para poder agrupar resultados sin adivinarlo.
 
+**Derivación de nodos (paso 4), `--nodes-mode`:**
+
+El paso 4 tiene tres variantes. Solo se aplican con `--call-mode five`; con cualquier otro `--call-mode` el valor se ignora (igual que `--visual-terms-mapping`). Las tres reciben los `visual_terms` ya mapeados y pasan después por la misma normalización y validación.
+
+- **`names`** (por defecto): comportamiento original, conservado **por reproducibilidad** — `build_workflow_a_audioset_core_nodes_prompt` muestra al VLM la lista plana `id | nombre` de AudioSet y es él quien decide qué nodos son plausibles. El *prompt* y el `prompt_version` no cambian respecto a ejecuciones anteriores.
+- **`leaf_rules`**: `build_workflow_a_audioset_core_nodes_from_rules_prompt` sustituye esa lista por las reglas de hoja de Workflow B (`audioset_leaf_rules()`, formato `id | nombre | requires: ...`) como instrucciones: un nodo por regla satisfecha y solo por reglas satisfechas. El VLM sigue siendo quien aplica las reglas (llamada de texto, mismas cabeceras en `raw/` y mismo tratamiento de fallos que `names`). No se cuentan ni se filtran los nodos del modelo por las reglas: solo actúa el validador de siempre.
+- **`deterministic`**: el paso 4 **no hace ninguna llamada al VLM**. `audioset_nodes.deterministic_nodes_from_visual_terms` aplica en Python las mismas reglas que Workflow B sobre los `visual_terms`: una regla se dispara cuando cada grupo `all_of` tiene al menos un término presente (misma semántica que `_match_leaf_rules`). Cada regla disparada genera un nodo `visible_source` con `node_id` secuencial, `audioset_id`/`audioset_name` de la regla, `evidence` del tipo "Leaf rule satisfied by: ..." y `visual_evidence_terms` igual a los términos que dispararon la regla. Así el paso 4 deja de ser una caja negra: el resultado es reproducible y auditable regla a regla. El paso 5 (caption) se ejecuta exactamente igual que en los otros modos.
+
+En los tres modos, si `visual_terms` queda vacío tras el paso 3 el paso 4 se salta.
+
+```bash
+# names (por defecto, comportamiento original)
+python -m scripts.run_workflow_a --image path.jpg --server-url http://localhost:8889 --call-mode five --nodes-mode names
+# leaf_rules (el VLM aplica las reglas de hoja de Workflow B)
+python -m scripts.run_workflow_a --image path.jpg --server-url http://localhost:8889 --call-mode five --nodes-mode leaf_rules
+# deterministic (reglas aplicadas en Python, sin llamada VLM en el paso 4)
+python -m scripts.run_workflow_a --image path.jpg --server-url http://localhost:8889 --call-mode five --nodes-mode deterministic
+```
+
 **Dos filtros de seguridad, sin coste de llamada VLM extra, entre pasos:**
 
 - Tras el paso 2: si la escena mapeada no está en la allow-list de Places365, se **saltan los pasos 3–5** y se devuelve directamente — la validación final la rechazaría de todos modos (es un mapeo forzado 1→1), así que el corte ahorra tres llamadas sin cambiar el resultado.
@@ -119,9 +140,9 @@ Cinco llamadas: la primera libre y con imagen, las cuatro siguientes de texto y 
 
 **Si `visual_terms` sale vacío tras el paso 3** (ningún término libre tenía equivalente en el vocabulario cerrado), el paso 4 se **salta** igual que el corte de escena: ningún nodo podría tener evidencia válida sobre una lista vacía, así que no tiene sentido gastar la llamada. El paso 5 (caption) sí recibe `visual_terms=[]`/`nodes=[]` y sabe qué hacer: escribe solo la escena, sin la cláusula "with..." y sin `acoustic_caption`. **El resultado final es una predicción válida, no un fallo** — ver "Caption y `acoustic_caption`" más abajo.
 
-`prompt_version` en este modo es `workflow_a_audioset_core_five_call_v1`, y `metadata` añade `n_free_visual_terms` / `n_mapped_visual_terms` (para poder medir la tasa de descarte del paso 3 sin reprocesar `raw/`).
+`prompt_version` en este modo es `workflow_a_audioset_core_five_call_v1` con `--nodes-mode names`; con `leaf_rules` es `workflow_a_audioset_core_five_call_v1+call4_leaf_rules_v1` y con `deterministic`, `workflow_a_audioset_core_five_call_v1+call4_leaf_rules_deterministic_v1`. `metadata` añade `n_free_visual_terms` / `n_mapped_visual_terms` (para poder medir la tasa de descarte del paso 3 sin reprocesar `raw/`), `visual_terms_mapping` y `nodes_mode` (la variante del paso 4 usada).
 
-En `raw/`, las cinco llamadas quedan concatenadas bajo cabeceras `=== CALL 1 ===` … `=== CALL 5 ===`, más dos secciones parseadas propias (`=== CALL 1 FREE TERMS (parsed) ===` y `=== CALL 1 SCENE (free-form, parsed) ===`), igual que hace `two` con su fase 1.
+En `raw/`, las cinco llamadas quedan concatenadas bajo cabeceras `=== CALL 1 ===` … `=== CALL 5 ===`, más dos secciones parseadas propias (`=== CALL 1 FREE TERMS (parsed) ===` y `=== CALL 1 SCENE (free-form, parsed) ===`), igual que hace `two` con su fase 1. Con `--nodes-mode deterministic`, la cabecera del paso 4 es `=== CALL 4 (deterministic leaf rules, no VLM) ===` y contiene los nodos calculados en lugar de una respuesta del modelo.
 
 ### Escena y tipos de nodo
 
@@ -191,7 +212,7 @@ Al depender `caption` solo de `visual_terms` y no de `nodes`, no puede darse la 
 }
 ```
 
-`prompt_version` en esta ruta es `workflow_a_audioset_core_v1`, `_three_call_v1`, `_two_call_v1` o `_five_call_v1` según el `--call-mode`. En `five`, `metadata` añade además `n_free_visual_terms` y `n_mapped_visual_terms` (y `visual_terms_mapping` con la política usada).
+`prompt_version` en esta ruta es `workflow_a_audioset_core_v1`, `_three_call_v1`, `_two_call_v1` o `_five_call_v1` según el `--call-mode`. En `five`, `metadata` añade además `n_free_visual_terms` y `n_mapped_visual_terms` (y `visual_terms_mapping` y `nodes_mode` con las opciones usadas; con `--nodes-mode leaf_rules` o `deterministic`, `prompt_version` lleva el sufijo `+call4_leaf_rules_v1` o `+call4_leaf_rules_deterministic_v1`).
 
 El JSON se serializa con `exclude_none=True`: Workflow A nunca rellena `parent_ids`, `top_level_ids`, `confidence` de nodo ni `confidence` de escena, y esos campos se omiten en vez de emitirse como `null`. Workflow A **no emite sección `extended`**.
 
