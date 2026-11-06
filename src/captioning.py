@@ -2,7 +2,31 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.schemas import Entity, ObservedInteraction
+from src.schemas import Entity, ObservedInteraction, AudioSetCoreNode, Scene
+
+
+def _audioset_node_phrase(audioset_name: str, instance_count: int | None) -> str:
+    """Verbalize one AudioSet node, singular/plural when the instance count is known.
+
+    ``instance_count`` is only meaningful for single-evidence-group rules (e.g. "Dog"
+    triggered purely by detected dogs) -- there it is the number of matched detections.
+    For composite rules (e.g. "Walk, footsteps" needs man + pedestrian + street at once)
+    there is no single object being counted, so the caller passes ``None`` and the term
+    is used as-is, the same way "speech" or "footsteps" already read fine without an
+    article.
+    """
+
+    primary_term = audioset_name.split(",")[0].strip()
+    label = primary_term.lower()
+
+    if instance_count is None:
+        return label
+
+    if instance_count > 1:
+        return f"{label}s"
+
+    article = "an" if label[0] in "aeiou" else "a"
+    return f"{article} {label}"
 
 
 def describe_spatial_relations(
@@ -172,6 +196,53 @@ def build_caption(
             sentences.append(spatial_sentence)
 
     return _finalize_caption(sentences)
+
+
+def build_audioset_caption(
+    scene: Scene,
+    visual_terms: list[str],
+) -> str:
+    """Build the scored, visual-only caption for the audioset-only core: scene
+    plus the concrete objects in ``visual_terms``, nothing acoustic. This is
+    the caption caption-quality metrics (CIDEr/SPICE/CLIPScore/CHAIR) read --
+    see ``build_audioset_acoustic_caption`` for the separate sound layer that
+    is deliberately kept out of those metrics.
+    """
+    scene_text = _scene_phrase(scene.label, scene.indoor_outdoor)
+
+    visual_objects = visual_terms[:8]
+    if not visual_objects:
+        return _finalize_caption([f"The image shows {scene_text}"])
+
+    sentence = f"The image shows {scene_text} with {_join_labels(visual_objects)}"
+    return _finalize_caption([sentence])
+
+
+def build_audioset_acoustic_caption(
+    scene: Scene,
+    nodes: list[AudioSetCoreNode],
+    node_instance_counts: dict[str, int | None] | None = None,
+) -> str | None:
+    """Build the separate, qualitative acoustic caption: one sound phrase per
+    node, ranked by confidence, singular/plural via ``_audioset_node_phrase``.
+    Returns ``None`` when there are no nodes -- there is nothing acoustic to
+    say, matching ``AudioSetCoreJSON.acoustic_caption`` being optional for
+    exactly that case, same as the caption-omission rule in Workflow A's
+    prompts.
+    """
+    if not nodes:
+        return None
+
+    node_instance_counts = node_instance_counts or {}
+    ranked_nodes = sorted(nodes, key=lambda n: n.confidence, reverse=True)
+
+    sound_labels = [
+        _audioset_node_phrase(node.audioset_name, node_instance_counts.get(node.node_id))
+        for node in ranked_nodes
+    ]
+
+    sentence = f"{_join_labels(sound_labels)} would plausibly be heard"
+    return _finalize_caption([sentence])
 
 
 def _finalize_caption(sentences: list[str]) -> str:

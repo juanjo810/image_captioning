@@ -9,6 +9,7 @@ from typing import Any
 from scripts.evaluation.vg_utils import canonicalize, load_alias_map, load_json, normalize_text
 from src.workflow_b.constants import CATEGORY_MAP, SCENE_GROUPS
 from src.workflow_b.vocabularies import infer_indoor_outdoor_from_scene, scene_groups_for_label
+from scripts.evaluation.vg_utils import is_audioset_core_json
 
 
 # ---------------------------------------------------------------------
@@ -211,11 +212,19 @@ def labels_to_family_counts(labels: set[str], object_alias: dict[str, str]) -> d
 def prediction_family_counts(pred_json: dict[str, Any], object_alias: dict[str, str]) -> dict[str, int]:
     counts: dict[str, int] = defaultdict(int)
 
-    for entity in pred_json.get("core", {}).get("entities", []):
-        label = canonicalize(entity.get("label", ""), object_alias)
-        family = label_to_family(label)
-        if family is not None:
-            counts[family] += int(entity.get("count_estimate", 1))
+    if is_audioset_core_json(pred_json):
+        for node in pred_json.get("core", {}).get("nodes", []):
+            for entity in node.get("visual_evidence_terms", []):
+                label = canonicalize(entity, object_alias)
+                family = label_to_family(label)
+                if family is not None:
+                    counts[family] += 1
+    else:
+        for entity in pred_json.get("core", {}).get("entities", []):
+            label = canonicalize(entity.get("label", ""), object_alias)
+            family = label_to_family(label)
+            if family is not None:
+                counts[family] += int(entity.get("count_estimate", 1))
 
     return dict(counts)
 
@@ -240,11 +249,20 @@ def family_evidence_score(
     return supported / total if total > 0 else 0.0
 
 
-def scene_confidence(pred_json: dict[str, Any]) -> float:
+def scene_confidence(pred_json: dict[str, Any]) -> float | str:
+    """Workflow B always fills scene.confidence with the real Places365 score;
+    Workflow A deliberately never does (asking the VLM for a confidence
+    number it would be inventing, not measuring), so this is
+    genuinely absent rather than zero. Reported as "n/a" -- not "" and not
+    0.0 -- so it reads unambiguously as "not applicable" rather than being
+    mistaken for a missing/empty value or a real zero confidence."""
+    confidence = pred_json.get("core", {}).get("scene", {}).get("confidence")
+    if confidence is None:
+        return "n/a"
     try:
-        return float(pred_json.get("core", {}).get("scene", {}).get("confidence", 0.0))
+        return float(confidence)
     except (TypeError, ValueError):
-        return 0.0
+        return "n/a"
 
 
 def compute_image_metrics(
@@ -318,7 +336,8 @@ def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
 
         for key in metric_keys:
-            result[key] = sum(float(item[key]) for item in items) / len(items)
+            values = [item[key] for item in items if item[key] not in ("", "n/a")]
+            result[key] = sum(float(v) for v in values) / len(values) if values else ""
 
         output.append(result)
 

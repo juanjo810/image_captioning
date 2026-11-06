@@ -6,6 +6,7 @@ from src.workflow_b.constants import(
     UNIVERSAL_GROUNDING_PROMPT_BATCHES,
     SCENE_EXPANSION_VOCABS
 )
+from src.workflow_b.audioset_vocab import audioset_prompt_batches
 from src.workflow_b.places365_mapping import PLACES365_TO_SCENE_GROUP
 
 
@@ -101,10 +102,41 @@ def iter_scene_expansion_prompt_batches(scene_label: str | None):
         }
 
 
+def iter_audioset_prompt_batches():
+    """Yield ontology-validated AudioSet-backed detector prompt batches."""
+    for batch in audioset_prompt_batches():
+        yield {
+            "name": batch["name"],
+            "prompt": build_prompt_from_terms(list(batch["terms"])),
+            "box_threshold": batch["box_threshold"],
+            "text_threshold": batch["text_threshold"],
+        }
 
-def iter_grounding_prompt_batches(scene_label: str | None = None):
-    """Yield universal + optional scene-aware Grounding DINO prompts."""
+
+def iter_legacy_prompt_batches(scene_label: str | None = None):
+    """Yield universal + optional scene-aware detector prompts."""
     yield from iter_universal_prompt_batches()
 
     if scene_label is not None:
         yield from iter_scene_expansion_prompt_batches(scene_label)
+
+
+def iter_grounding_prompt_batches(
+    scene_label: str | None = None,
+    vocab_mode: str = "legacy",
+):
+    """Yield detector prompts for the selected Workflow B vocabulary mode."""
+    if vocab_mode == "legacy":
+        yield from iter_legacy_prompt_batches(scene_label)
+        return
+
+    if vocab_mode == "audioset":
+        yield from iter_audioset_prompt_batches()
+        return
+
+    if vocab_mode == "hybrid":
+        yield from iter_legacy_prompt_batches(scene_label)
+        yield from iter_audioset_prompt_batches()
+        return
+
+    raise ValueError(f"Unsupported vocab_mode: {vocab_mode}")

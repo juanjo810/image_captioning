@@ -22,16 +22,54 @@ AudioSetInferenceType = Literal[
     "scene_affordance",
     "uncertain",
 ]
+AudioSetNodeType = Literal[
+    "visible_source",
+    "visible_action",
+]
 
 
 class StrictBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class AudioSetCoreNode(StrictBaseModel):
+    node_id: str = Field(pattern=r"^n[0-9]+$")
+    audioset_id: str = Field(pattern=r"^/[mgt]/[a-zA-Z0-9_]+$")
+    audioset_name: str = Field(min_length=1)
+    node_type: AudioSetNodeType
+    evidence: str = Field(min_length=1)
+    visual_evidence_terms: list[str] | None = Field(default=None, min_length=1)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    parent_ids: list[str] | None = Field(default=None, min_length=1)
+    top_level_ids: list[str] | None = Field(default=None, min_length=1)
+
+
+class AudioSetCoreJSON(StrictBaseModel):
+    image_id: str = Field(min_length=1)
+    visual_terms: list[str] = Field(default_factory=list)
+    scene: Scene
+    nodes: list[AudioSetCoreNode]
+    caption: str = Field(min_length=1)
+    acoustic_caption: str | None = Field(default=None, min_length=1)
+
+
+class AudioSetGrounding(StrictBaseModel):
+    node_id: str = Field(pattern=r"^n[0-9]+$")
+    visual_label_raw: str = Field(min_length=1)
+    bbox: list[float] = Field(min_length=4, max_length=4)
+    source: str = Field(min_length=1)
+    detector_confidence: float = Field(ge=0.0, le=1.0)
+
+
+class AudioSetExtendedJSON(StrictBaseModel):
+    grounding: list[AudioSetGrounding]
+    global_geometry: GlobalGeometry
+
+
 class Scene(StrictBaseModel):
     label: str = Field(min_length=1)
     indoor_outdoor: IndoorOutdoor = "unknown"
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class Entity(StrictBaseModel):
@@ -58,6 +96,7 @@ class Environment(StrictBaseModel):
     crowd_level: CrowdLevel = "unknown"
     activity_level: ActivityLevel = "unknown"
     lighting: LightingLevel = "unknown"
+
 
 class SpatialRelation(StrictBaseModel):
     subject_id: str = Field(pattern=r"^e[0-9]+$")

@@ -26,6 +26,7 @@ PLACES365_TO_SCENE_GROUP: dict[str, str] = {
     "field road": "rural_traditional",
     "hayfield": "rural_traditional",
     "hunting lodge outdoor": "rural_traditional",
+    "igloo": "rural_traditional",
     "kennel outdoor": "rural_traditional",
     "manufactured home": "rural_traditional",
     "oast house": "rural_traditional",
@@ -56,7 +57,6 @@ PLACES365_TO_SCENE_GROUP: dict[str, str] = {
     "desert sand": "natural_outdoor",
     "desert vegetation": "natural_outdoor",
     "forest broadleaf": "natural_outdoor",
-    "broadleaf": "natural_outdoor",
     "forest path": "natural_outdoor",
     "forest road": "natural_outdoor",
     "glacier": "natural_outdoor",
@@ -88,6 +88,7 @@ PLACES365_TO_SCENE_GROUP: dict[str, str] = {
     "bakery shop": "market_public",
     "bazaar indoor": "market_public",
     "bazaar outdoor": "market_public",
+    "beauty salon": "market_public",
     "bookstore": "market_public",
     "booth indoor": "market_public",
     "butchers shop": "market_public",
@@ -206,6 +207,7 @@ PLACES365_TO_SCENE_GROUP: dict[str, str] = {
     "balcony exterior": "urban_transport",
     "boardwalk": "urban_transport",
     "bridge": "urban_transport",
+    "building facade": "urban_transport",
     "bus interior": "urban_transport",
     "bus station indoor": "urban_transport",
     "car interior": "urban_transport",
@@ -358,6 +360,7 @@ PLACES365_TO_SCENE_GROUP: dict[str, str] = {
     "gymnasium indoor": "sports_recreation",
     "ice skating rink indoor": "sports_recreation",
     "ice skating rink outdoor": "sports_recreation",
+    "locker room": "sports_recreation",
     "martial arts gym": "sports_recreation",
     "picnic area": "sports_recreation",
     "playground": "sports_recreation",
@@ -433,3 +436,13 @@ def validate_places365_mapping() -> None:
 
 
 validate_places365_mapping()
+
+
+def allowed_places365_labels() -> tuple[str, ...]:
+    """Return the Places365 scene labels Workflow A's VLM may choose from.
+
+    Using this table (rather than the external ``categories_places365.txt``) as the
+    allow-list guarantees every label the VLM can pick already resolves via
+    ``scene_groups_for_label``.
+    """
+    return tuple(sorted(PLACES365_TO_SCENE_GROUP.keys()))
