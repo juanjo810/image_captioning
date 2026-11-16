@@ -11,17 +11,75 @@ from src.workflow_a.base import BaseVLM
 
 
 class LlamaCppServerAdapter(BaseVLM):
-    """OpenAI-compatible llama.cpp server adapter for multimodal Workflow A."""
+    """OpenAI-compatible llama.cpp server adapter for multimodal Workflow A.
+
+    Sampling parameters (``temperature``, ``top_p``, ``seed``) are sent with
+    every request when given, so that the values that produced a prediction
+    are the ones recorded in its metadata rather than whatever the server
+    happened to be started with. When they are left as ``None`` the server
+    defaults apply; in that case ``server_info()`` (a best-effort GET of the
+    server's ``/props`` endpoint, cached) reports those defaults together with
+    the server build, so the effective configuration is still recorded.
+    """
 
     def __init__(
         self,
         model_id: str = "llamacpp-local-vlm",
         base_url: str = "http://localhost:8889",
         timeout: int = 600,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        seed: int | None = None,
     ) -> None:
         self.model_id = model_id
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.temperature = temperature
+        self.top_p = top_p
+        self.seed = seed
+        self._server_info: dict[str, Any] | None = None
+
+    @property
+    def sampling_params(self) -> dict[str, Any]:
+        """The sampling fields actually sent with each request (None = not sent)."""
+        params: dict[str, Any] = {}
+        if self.temperature is not None:
+            params["temperature"] = self.temperature
+        if self.top_p is not None:
+            params["top_p"] = self.top_p
+        if self.seed is not None:
+            params["seed"] = self.seed
+        return params
+
+    def server_info(self) -> dict[str, Any]:
+        """Best-effort snapshot of the llama.cpp server configuration from
+        ``GET /props``: build identifier, loaded model and the server-side
+        default generation settings (temperature, top_p, seed, ...). Never
+        raises: on any failure it returns ``{"error": ...}`` so a metadata
+        block can still be written. Fetched once per adapter instance."""
+        if self._server_info is not None:
+            return self._server_info
+
+        url = f"{self.base_url}/props"
+        try:
+            with request.urlopen(request.Request(url, method="GET"), timeout=30) as resp:
+                props = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 - diagnostic only
+            self._server_info = {"error": f"{type(exc).__name__}: {exc}", "url": url}
+            return self._server_info
+
+        info: dict[str, Any] = {"url": url}
+        for key in ("build_info", "model_path", "model", "chat_template", "total_slots"):
+            if key in props:
+                info[key] = props[key]
+        defaults = props.get("default_generation_settings")
+        if isinstance(defaults, dict):
+            # Newer servers nest the sampling settings under "params"; older
+            # ones put them at the top level. Keep whichever is there.
+            info["default_generation_settings"] = defaults.get("params", defaults)
+        info["props_keys"] = sorted(props.keys()) if isinstance(props, dict) else []
+        self._server_info = info
+        return info
 
     def generate(
         self,
@@ -43,6 +101,7 @@ class LlamaCppServerAdapter(BaseVLM):
                 }
             ],
             "max_tokens": max_new_tokens,
+            **self.sampling_params,
         }
 
         response = self._post_json(

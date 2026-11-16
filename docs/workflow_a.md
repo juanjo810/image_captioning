@@ -40,13 +40,18 @@ Ejecuta siempre como módulo desde la raíz del repo. `python scripts/run_workfl
 | `--server-url` | `http://localhost:8889` | URL del servidor llama.cpp. |
 | `--output-dir` | `outputs/workflow_a` | Directorio de salida. |
 | `--max-new-tokens` | `2048` | Se envía como `max_tokens` al servidor. |
+| `--temperature` | `None` | Se envía como `temperature` en cada petición. `None` = no se envía, aplica el default del servidor (que queda registrado en `metadata.server_info`). `0` = greedy. |
+| `--top-p` | `None` | Se envía como `top_p` en cada petición. `None` = default del servidor. |
+| `--seed` | `None` | Se envía como `seed` en cada petición. `None` = default del servidor. Fíjalo para runs reproducibles; varíalo entre runs repetidos para medir varianza. |
 | `--include-audioset-nodes` | off | Pide `acoustic_semantics.nodes`. Solo tiene efecto con `--legacy-visual-core`. |
 | `--legacy-visual-core` | off | Usa el `CoreJSON` clásico en lugar del audioset core. |
 | `--call-mode` | `single` | `single`, `three`, `two` o `five`. Solo tiene sentido sin `--legacy-visual-core`. |
 | `--visual-terms-mapping` | `discard` | `discard` o `force`. Solo tiene efecto con `--call-mode five` (ver abajo). |
 | `--schema-examples` | `concrete` | `concrete` o `generic`. Solo tiene efecto con `--call-mode five` (ver abajo). |
 
-**No existen `--model` ni `--temperature`.** El único backend es llama.cpp, y el adaptador envía únicamente `model`, `messages` y `max_tokens`: temperatura, top-p y demás sampling se configuran al lanzar `llama-server`, no desde este CLI.
+**No existe `--model`.** El único backend es llama.cpp. El adaptador envía `model`, `messages`, `max_tokens` y, cuando se pasan, `temperature`, `top_p` y `seed`. Si no se pasan, aplica la configuración con la que se lanzó `llama-server`; para que esa configuración quede documentada igualmente, el adaptador consulta una vez `GET /props` del servidor y guarda el resultado (build de llama.cpp, ruta del modelo GGUF, `default_generation_settings`) en `metadata.server_info` de cada predicción. Si el endpoint no responde, `server_info` contiene `{"error": ...}` en lugar de fallar.
+
+Para un run que haya que reportar en un paper, lo recomendable es fijar los tres explícitamente (p. ej. `--temperature 0 --top-p 1 --seed 0`, o la temperatura que se quiera estudiar con tres seeds distintos) para no depender de cómo se arrancó el servidor.
 
 ### Runner con reintentos
 
@@ -193,10 +198,19 @@ Al depender `caption` solo de `visual_terms` y no de `nodes`, no puede darse la 
     "image_id": "example",
     "include_audioset_nodes": true,
     "use_legacy_core": false,
-    "generation_params": { "max_new_tokens": 2048 }
+    "generation_params": { "max_new_tokens": 2048, "temperature": 0.0, "top_p": 1.0, "seed": 0 },
+    "server_info": {
+      "url": "http://localhost:8889/props",
+      "build_info": "b1234-abcdef0",
+      "model_path": "/models/qwen-vl-q4_k_m.gguf",
+      "default_generation_settings": { "temperature": 0.8, "top_p": 0.95, "seed": -1, "...": "..." },
+      "props_keys": ["build_info", "default_generation_settings", "model_path", "total_slots"]
+    }
   }
 }
 ```
+
+`generation_params` solo contiene las claves de sampling que se enviaron de verdad (ninguna, si no se pasaron por CLI). `server_info` es un volcado best-effort de `GET /props`; las claves exactas dependen de la versión de llama.cpp, por eso se guarda también `props_keys`.
 
 `prompt_version` en esta ruta es `workflow_a_audioset_core_v1`, `_three_call_v1`, `_two_call_v1` o `_five_call_v1` según el `--call-mode`. En `five`, `metadata` añade además `n_free_visual_terms` y `n_mapped_visual_terms` (y `visual_terms_mapping` con la política usada).
 
@@ -287,7 +301,7 @@ El manifest de Workflow A es JSONL con `image_id`, `image_path`, `json_path` y `
 | Error | Causa probable | Solución |
 | --- | --- | --- |
 | `Could not connect to llama.cpp server` | Servidor apagado, URL incorrecta o `localhost` entre contenedores | Arranca `llama-server` y revisa `--server-url`. |
-| JSON inválido | El VLM devolvió texto extra o campos fuera de schema | Revisa `raw/`, sube `--max-new-tokens`, baja la temperatura **en el servidor**. |
+| JSON inválido | El VLM devolvió texto extra o campos fuera de schema | Revisa `raw/`, sube `--max-new-tokens`, baja `--temperature`. |
 | Validación Pydantic falla | Campo faltante, etiqueta de escena fuera de la allow-list, `audioset_id`/`audioset_name` descasados | Revisa `failed/<image>.json` y `raw/<image>.txt`. |
 | `core.nodes` y/o `core.visual_terms` vacíos | Ningún término libre tenía equivalente en el vocabulario cerrado de 210 términos | No es un error: revisa `metadata.n_free_visual_terms` / `n_mapped_visual_terms` (solo `five`) para confirmar la tasa de descarte. |
 | No procesa el directorio | Solo busca `.jpg` | Convierte los inputs o usa `--image`. |

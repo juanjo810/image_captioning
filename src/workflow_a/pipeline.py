@@ -677,8 +677,19 @@ class WorkflowAPipeline:
             "use_legacy_core": use_legacy_core,
             "generation_params": {
                 "max_new_tokens": max_new_tokens,
+                # Sampling fields explicitly sent with each request (adapter
+                # dependent). Absent keys mean "server default" -- see
+                # server_info below for what that default was.
+                **getattr(self.vlm, "sampling_params", {}),
             },
         }
+        server_info = getattr(self.vlm, "server_info", None)
+        if callable(server_info):
+            # Build id, model path and server-side default sampling settings,
+            # fetched once per adapter instance. Recorded so the exact
+            # configuration (temperature/top_p/seed, quantized model file,
+            # llama.cpp build) can be reported from the outputs alone.
+            metadata["server_info"] = server_info()
         if extra_metadata:
             metadata.update(extra_metadata)
         if allowed_audioset_nodes:

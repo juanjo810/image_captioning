@@ -255,6 +255,45 @@ Se cargan con `load_alias_map` de `scripts/evaluation/vg_utils.py`, en formato `
 
 El summary omite campos diagnósticos largos como listas de tags y rutas de nodos.
 
+## Intervalos de confianza y tests pareados
+
+El summary da medias; no dice cuánta incertidumbre tienen ni si dos sistemas difieren más de lo que explicaría el muestreo de imágenes. `bootstrap_stats.py` trabaja sobre los CSV `--per-image-output` (AudioSet o scene) y **no vuelve a ejecutar nada**:
+
+```bash
+python -m scripts.evaluation.bootstrap_stats \
+  --per-image outputs/metrics/audioset_per_image_gemma_five.csv:A-gemma-five \
+  --per-image outputs/metrics/audioset_per_image_gemma_det.csv:A-gemma-det \
+  --per-image outputs/metrics/audioset_per_image_owlv2.csv:B-owlv2 \
+  --per-image outputs/metrics/audioset_per_image_gdino.csv:B-gdino \
+  --compare A-gemma-det:B-owlv2 --compare A-gemma-five:A-gemma-det --compare B-owlv2:B-gdino \
+  --n-boot 10000 --seed 0 \
+  --output-dir outputs/metrics/stats/audioset
+```
+
+- `PATH:LABEL` da nombre a cada sistema; sin etiqueta, se usa `detector/scene_model/captioner` de cada fila (vale también un único CSV con varias configuraciones).
+- `ci_summary.csv`: media e IC 95 % por bootstrap percentil (remuestreo de imágenes). Para los CSV AudioSet añade cuántas imágenes tienen pseudo-referencia vacía (`n_empty_ref`), cuántas tienen predicción y referencia vacías a la vez (`n_empty_both`, que `prf` puntúa 1.0) y la media sobre el subconjunto con referencia no vacía y sobre el que excluye vacío-vacío. Estas tres cifras deben acompañar a cualquier F1 que se reporte.
+- `paired_comparisons.csv`: para cada `--compare A:B`, diferencia de medias pareada por imagen con IC bootstrap, p del test de permutación por cambio de signo, p de Wilcoxon signed-rank (si `scipy` está instalado), ambas con corrección de Holm, tasas de victoria/empate y correlación rango-biserial como tamaño de efecto. La familia de Holm es, por defecto, el conjunto completo de (métrica, par); `--holm-family metric` corrige por métrica.
+- `--strata-csv image_id,stratum` hace el bootstrap estratificado (p. ej. por el grupo de escena con el que se construyó el subset).
+- `--align common` (default) restringe todos los sistemas a las imágenes que comparten, para que las medias sean comparables; avisa de cuántas descarta por sistema.
+- `summary.md` tiene las mismas tablas en Markdown.
+
+Mantén la lista de `--compare` corta y decidida de antemano: cada par entra en la corrección múltiple.
+
+## Sensibilidad de la métrica de escena a los pesos
+
+`pred_entity_scene_consistency` pondera cada familia de entidades con un peso fijado a mano (`FAMILY_WEIGHTS`, en [0.35, 1.00]). `scene_weight_sensitivity.py` comprueba si el **ranking** de sistemas depende de esos valores. Lee una vez los JSON del manifest y recalcula solo la puntuación ponderada bajo: pesos por defecto (comprobación: reproduce `family_evidence_score` exactamente), pesos uniformes, permutaciones de los pesos entre familias, leave-one-family-out y `--n-draws` vectores aleatorios en `[--weight-min, --weight-max]`.
+
+```bash
+python -m scripts.evaluation.scene_weight_sensitivity \
+  --manifest outputs/manifests/predictions_all.csv \
+  --vg-object-refs data/vg_refs/vg_object_references.csv \
+  --object-alias data/aliases/object_alias.csv \
+  --n-draws 1000 --seed 0 \
+  --output-dir outputs/metrics/stats/scene_sensitivity
+```
+
+`summary.md` reporta la fracción de sorteos que conservan el ranking por defecto, la estabilidad de cada par adyacente, la distribución de Kendall τ-a respecto al ranking por defecto y el rango de la métrica por sistema; `conditions.csv` y `draws.csv` tienen el detalle. Se calcula también `gt_entity_scene_consistency` (la misma métrica sobre los objetos VG) como referencia.
+
 ## Nota sobre Visual Genome
 
 Visual Genome no contiene ground truth acústico. Las referencias AudioSet se generan como **pseudo-referencias** proyectando objetos y relaciones visuales sobre la ontología. Usa los términos "AudioSet pseudo-references" o "acoustic-semantic pseudo-references", nunca "ground truth acústico".

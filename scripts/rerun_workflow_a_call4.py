@@ -177,6 +177,18 @@ def main() -> None:
     parser.add_argument("--server-url", default="http://localhost:8889")
     parser.add_argument("--model-id", default="local-vlm")
     parser.add_argument("--max-new-tokens", type=int, default=2048)
+    parser.add_argument(
+        "--temperature", type=float, default=None,
+        help="Sampling temperature sent with the call-4 request. Default None: server default (recorded in metadata).",
+    )
+    parser.add_argument(
+        "--top-p", type=float, default=None,
+        help="Nucleus-sampling top_p sent with the call-4 request. Default None: server default.",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Sampling seed sent with the call-4 request. Default None: server default.",
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument(
         "--image-ids", nargs="+", default=None,
@@ -221,7 +233,21 @@ def main() -> None:
     allowed_audioset_nodes = default_allowed_audioset_nodes()
     allowed_scene_labels = allowed_places365_labels()
     source_image_paths = load_source_image_paths(source_dir)
-    adapter = LlamaCppServerAdapter(model_id=args.model_id, base_url=args.server_url)
+    adapter = LlamaCppServerAdapter(
+        model_id=args.model_id,
+        base_url=args.server_url,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        seed=args.seed,
+    )
+    # The source metadata (calls 1-3, 5) keeps its own generation_params; the
+    # re-run records the call-4 sampling configuration separately so both
+    # are reportable.
+    call4_generation_params = {
+        "max_new_tokens": args.max_new_tokens,
+        **adapter.sampling_params,
+    }
+    call4_server_info = adapter.server_info()
 
     llm_failed: list[str] = []
     deterministic_failed: list[str] = []
@@ -242,6 +268,13 @@ def main() -> None:
             "call4_rerun": True,
             "call4_source_dir": str(source_dir),
             "acoustic_caption_dropped": True,
+        }
+        # Only the LLM re-run involves sampling; the deterministic branch
+        # applies the leaf rules in Python and records no generation params.
+        llm_metadata = {
+            **common_metadata,
+            "call4_generation_params": call4_generation_params,
+            "call4_server_info": call4_server_info,
         }
 
         if (output_dir / "json" / f"{image_id}.json").exists():
@@ -292,7 +325,7 @@ def main() -> None:
                         source_metadata=source_metadata,
                         nodes=nodes,
                         raw_output=raw_header + "=== CALL 4 (rerun, leaf rules) ===\n" + call4_raw,
-                        extra_metadata={**common_metadata, "call4_mode": "llm"},
+                        extra_metadata={**llm_metadata, "call4_mode": "llm"},
                         prompt_version_suffix=LLM_PROMPT_VERSION_SUFFIX,
                         allowed_audioset_nodes=allowed_audioset_nodes,
                         allowed_scene_labels=allowed_scene_labels,

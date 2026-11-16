@@ -98,6 +98,27 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Sampling temperature sent with every request. Default None: server default (recorded in metadata).",
+    )
+
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=None,
+        help="Nucleus-sampling top_p sent with every request. Default None: server default.",
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Sampling seed sent with every request. Default None: server default.",
+    )
+
+    parser.add_argument(
         "--include-audioset-nodes",
         action="store_true",
         help=(
@@ -161,6 +182,9 @@ def main() -> None:
     adapter = LlamaCppServerAdapter(
         model_id=model_id,
         base_url=args.server_url,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        seed=args.seed,
     )
 
     pipeline = WorkflowAPipeline(adapter)

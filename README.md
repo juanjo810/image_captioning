@@ -103,7 +103,7 @@ python -m scripts.run_workflow_a ...
 
 ## Modelos Externos
 
-- **Workflow A**: servidor llama.cpp OpenAI-compatible, por defecto en `http://localhost:8889`. Modelos GGUF servidos por `llama-server` (`--server-url` apunta a él). El sampling (temperatura, top-p) se configura **en el servidor**: el adaptador solo envía `model`, `messages` y `max_tokens`.
+- **Workflow A**: servidor llama.cpp OpenAI-compatible, por defecto en `http://localhost:8889`. Modelos GGUF servidos por `llama-server` (`--server-url` apunta a él). El sampling se controla con `--temperature`, `--top-p` y `--seed` (se envían en cada petición); si no se pasan, aplica el default con el que se lanzó `llama-server`, y en ambos casos la configuración efectiva queda registrada en `metadata.generation_params` y `metadata.server_info` (volcado de `GET /props`: build, modelo GGUF, defaults de sampling).
 - **Workflow B GroundingDINO**: repo local importable y checkpoint `.pth` bajo `/home/jovyan/projects`.
 - **Workflow B OWLv2**: `google/owlv2-base-patch16-ensemble`.
 - **Workflow B Places365**: `categories_places365.txt` y checkpoint por arquitectura.
