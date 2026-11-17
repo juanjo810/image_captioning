@@ -203,6 +203,9 @@ Al depender `caption` solo de `visual_terms` y no de `nodes`, no puede darse la 
       "url": "http://localhost:8889/props",
       "build_info": "b1234-abcdef0",
       "model_path": "/models/qwen-vl-q4_k_m.gguf",
+      "total_slots": 4,
+      "chat_template_sha256": "9f2c...",
+      "chat_template_chars": 3521,
       "default_generation_settings": { "temperature": 0.8, "top_p": 0.95, "seed": -1, "...": "..." },
       "props_keys": ["build_info", "default_generation_settings", "model_path", "total_slots"]
     }
@@ -210,7 +213,7 @@ Al depender `caption` solo de `visual_terms` y no de `nodes`, no puede darse la 
 }
 ```
 
-`generation_params` solo contiene las claves de sampling que se enviaron de verdad (ninguna, si no se pasaron por CLI). `server_info` es un volcado best-effort de `GET /props`; las claves exactas dependen de la versión de llama.cpp, por eso se guarda también `props_keys`.
+`generation_params` solo contiene las claves de sampling que se enviaron de verdad (ninguna, si no se pasaron por CLI). `server_info` es un volcado best-effort de `GET /props`; las claves exactas dependen de la versión de llama.cpp, por eso se guarda también `props_keys`. La plantilla de chat no se guarda entera (son varios kB idénticos en cada imagen): solo su SHA-256 y su longitud, suficiente para comprobar que dos runs usaron la misma. Un `seed` de `4294967295` en `default_generation_settings` es `-1` sin signo: semilla aleatoria nueva en cada petición.
 
 `prompt_version` en esta ruta es `workflow_a_audioset_core_v1`, `_three_call_v1`, `_two_call_v1` o `_five_call_v1` según el `--call-mode`. En `five`, `metadata` añade además `n_free_visual_terms` y `n_mapped_visual_terms` (y `visual_terms_mapping` con la política usada).
 

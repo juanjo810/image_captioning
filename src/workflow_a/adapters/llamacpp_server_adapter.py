@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import mimetypes
 from pathlib import Path
 from typing import Any
@@ -53,8 +54,9 @@ class LlamaCppServerAdapter(BaseVLM):
 
     def server_info(self) -> dict[str, Any]:
         """Best-effort snapshot of the llama.cpp server configuration from
-        ``GET /props``: build identifier, loaded model and the server-side
-        default generation settings (temperature, top_p, seed, ...). Never
+        ``GET /props``: build identifier, loaded model, a SHA-256 fingerprint
+        of the chat template (not its text) and the server-side default
+        generation settings (temperature, top_p, seed, ...). Never
         raises: on any failure it returns ``{"error": ...}`` so a metadata
         block can still be written. Fetched once per adapter instance."""
         if self._server_info is not None:
@@ -69,9 +71,18 @@ class LlamaCppServerAdapter(BaseVLM):
             return self._server_info
 
         info: dict[str, Any] = {"url": url}
-        for key in ("build_info", "model_path", "model", "chat_template", "total_slots"):
+        for key in ("build_info", "model_path", "model_alias", "model", "modalities", "total_slots"):
             if key in props:
                 info[key] = props[key]
+        # The chat template is several kB of Jinja and identical for every
+        # image of a run, so only a fingerprint goes into the per-image
+        # metadata: enough to tell whether two runs used the same template.
+        chat_template = props.get("chat_template")
+        if isinstance(chat_template, str):
+            info["chat_template_sha256"] = hashlib.sha256(
+                chat_template.encode("utf-8")
+            ).hexdigest()
+            info["chat_template_chars"] = len(chat_template)
         defaults = props.get("default_generation_settings")
         if isinstance(defaults, dict):
             # Newer servers nest the sampling settings under "params"; older
