@@ -66,6 +66,8 @@ Acepta los mismos argumentos, más:
 | `--max-retries` | `2` | Reintentos extra por imagen fallida (3 intentos totales). |
 | `--retry-delay` | `0.0` | Segundos de espera entre rondas de reintento. |
 
+Con `--seed`, la ronda de reintento *k* usa `seed + 1000·k`: reenviar el mismo prompt con la misma semilla devolvería la misma muestra y el reintento fallaría igual. La semilla realmente usada queda en `metadata.generation_params.seed` de cada predicción.
+
 Reintenta solo las imágenes que fallaron parsing/validación y escribe un `retry_report.json` (listas de éxitos y fallos) en `--output-dir`. Pensado para lotes desatendidos, para no repetir toda la tanda por unos pocos fallos transitorios del VLM.
 
 ## Ruta por defecto: audioset core

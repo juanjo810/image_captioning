@@ -15,6 +15,9 @@ SUPPORTED_MODELS = {
 }
 
 
+RETRY_SEED_OFFSET = 1000
+
+
 def run_batch(
     pipeline: WorkflowAPipeline,
     image_paths: list[Path],
@@ -115,7 +118,11 @@ def main() -> None:
         "--seed",
         type=int,
         default=None,
-        help="Sampling seed sent with every request. Default None: server default.",
+        help=(
+            "Sampling seed sent with every request. Default None: server default. "
+            "Retry round k uses seed + 1000*k: resending the same prompt with the "
+            "same seed would return the same sample, so the retry could not succeed."
+        ),
     )
 
     parser.add_argument(
@@ -203,6 +210,14 @@ def main() -> None:
     for attempt in range(1, total_attempts + 1):
         if not pending:
             break
+
+        if args.seed is not None:
+            # With a fixed seed a retry would resend identical prompts and get
+            # identical samples back, i.e. fail again. Each retry round therefore
+            # shifts the seed; the offset is large so it cannot coincide with the
+            # base seed of another run (seeds 1, 2, 3...). The seed actually used
+            # is what ends up in each prediction's metadata.generation_params.
+            adapter.seed = args.seed + RETRY_SEED_OFFSET * (attempt - 1)
 
         label = "Initial run" if attempt == 1 else f"Retry {attempt - 1}/{args.max_retries}"
         print(f"{label}: {len(pending)} image(s)", flush=True)
