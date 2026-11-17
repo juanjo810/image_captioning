@@ -275,24 +275,27 @@ python -m scripts.evaluation.bootstrap_stats \
 - `paired_comparisons.csv`: para cada `--compare A:B`, diferencia de medias pareada por imagen con IC bootstrap, p del test de permutación por cambio de signo, p de Wilcoxon signed-rank (si `scipy` está instalado), ambas con corrección de Holm, tasas de victoria/empate y correlación rango-biserial como tamaño de efecto. La familia de Holm es, por defecto, el conjunto completo de (métrica, par); `--holm-family metric` corrige por métrica.
 - `--strata-csv image_id,stratum` hace el bootstrap estratificado (p. ej. por el grupo de escena con el que se construyó el subset).
 - `--align common` (default) restringe todos los sistemas a las imágenes que comparten, para que las medias sean comparables; avisa de cuántas descarta por sistema.
+- `--ref-filter nonempty|empty` separa dos cosas que la media global mezcla. Con `nonempty` solo entran las imágenes cuya pseudo-referencia tiene al menos un nodo: es donde se compara de verdad cuánto recupera cada sistema. Con `empty` solo entran las de pseudo-referencia vacía; ahí cada métrica vale 1.0 si el sistema no predijo nada y 0.0 si predijo algo, así que la media es la **tasa de abstención**. Un sistema que predice poco gana en la segunda y pierde en la primera, y la media global no deja verlo. Conviene reportar las dos.
 - `summary.md` tiene las mismas tablas en Markdown.
 
 Mantén la lista de `--compare` corta y decidida de antemano: cada par entra en la corrección múltiple.
 
 ## Sensibilidad de la métrica de escena a los pesos
 
-`pred_entity_scene_consistency` pondera cada familia de entidades con un peso fijado a mano (`FAMILY_WEIGHTS`, en [0.35, 1.00]). `scene_weight_sensitivity.py` comprueba si el **ranking** de sistemas depende de esos valores. Lee una vez los JSON del manifest y recalcula solo la puntuación ponderada bajo: pesos por defecto (comprobación: reproduce `family_evidence_score` exactamente), pesos uniformes, permutaciones de los pesos entre familias, leave-one-family-out y `--n-draws` vectores aleatorios en `[--weight-min, --weight-max]`.
+Las dos métricas de consistencia de escena ponderan cada familia de entidades con un peso fijado a mano (`FAMILY_WEIGHTS`, en [0.35, 1.00]). `scene_weight_sensitivity.py` comprueba si el **ranking** de sistemas depende de esos valores. Con `--target gt` (por defecto) analiza `gt_entity_scene_consistency`: la proporción ponderada de objetos de referencia de Visual Genome cuya familia es esperable en el grupo de escena que predijo el sistema. Solo depende de la etiqueta de escena predicha, así que evalúa el paso de escena (Places365 en Workflow B, las llamadas de escena del VLM en Workflow A), no las entidades detectadas ni los nodos AudioSet; por eso dos sistemas que comparten predicción de escena empatan exactamente y conviene pasar con `--systems` uno por cada fuente de escena distinta. Con `--target pred` analiza `pred_entity_scene_consistency`, la misma puntuación sobre la evidencia del propio sistema, que vale 0 cuando no hay ningún nodo predicho. Los sistemas se restringen a las imágenes que comparten. Lee una vez los JSON del manifest y recalcula solo la puntuación ponderada bajo: pesos por defecto (comprobación: reproduce `family_evidence_score` exactamente), pesos uniformes, permutaciones de los pesos entre familias, leave-one-family-out y `--n-draws` vectores aleatorios en `[--weight-min, --weight-max]`.
 
 ```bash
 python -m scripts.evaluation.scene_weight_sensitivity \
   --manifest outputs/manifests/predictions_all.csv \
   --vg-object-refs data/vg_refs/vg_object_references.csv \
   --object-alias data/aliases/object_alias.csv \
+  --target gt \
+  --systems unknown/workflow_a_gemma4/template unknown/workflow_a_qwen/template owlv2/densenet161/template owlv2/resnet50/template \
   --n-draws 1000 --seed 0 \
   --output-dir outputs/metrics/stats/scene_sensitivity
 ```
 
-`summary.md` reporta la fracción de sorteos que conservan el ranking por defecto, la estabilidad de cada par adyacente, la distribución de Kendall τ-a respecto al ranking por defecto y el rango de la métrica por sistema; `conditions.csv` y `draws.csv` tienen el detalle. Se calcula también `gt_entity_scene_consistency` (la misma métrica sobre los objetos VG) como referencia.
+`summary.md` reporta la fracción de sorteos que conservan el ranking por defecto, la estabilidad de cada par adyacente, la distribución de Kendall τ-a respecto al ranking por defecto y el rango de la métrica por sistema; `conditions.csv` y `draws.csv` tienen el detalle. `conditions.csv` lleva siempre las dos métricas; el ranking, los sorteos y el resumen siguen la elegida con `--target`.
 
 ## Nota sobre Visual Genome
 

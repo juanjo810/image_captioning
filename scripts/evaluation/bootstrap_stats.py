@@ -28,6 +28,16 @@ What it produces (all under ``--output-dir``):
 ``summary.md``
     The same numbers as Markdown tables, ready to paste into a draft.
 
+``--ref-filter`` splits the analysis by whether the pseudo-reference of an
+image is empty, which the plain mean mixes together:
+
+- ``nonempty``: only images whose pseudo-reference has at least one node, i.e.
+  images where there is something to find. This is the fair place to compare
+  how well systems recover sound concepts.
+- ``empty``: only images with an empty pseudo-reference. There every metric is
+  1.0 when the system predicted nothing and 0.0 otherwise, so the mean is the
+  system's abstention rate.
+
 Systems are identified by a label. A label can be given explicitly with
 ``--per-image PATH:LABEL``; without it, the label is built from the
 ``detector``/``scene_model``/``captioner`` columns of each row, so a single
@@ -159,6 +169,28 @@ def load_strata(path: Path | None) -> dict[str, str] | None:
         for row in reader:
             strata[row["image_id"]] = row[stratum_col]
     return strata
+
+
+def filter_by_reference(
+    systems: dict[str, dict[str, dict[str, str]]], mode: str
+) -> dict[str, dict[str, dict[str, str]]]:
+    """Keep only the images whose pseudo-reference is non-empty (``nonempty``)
+    or empty (``empty``). The reference of an image does not depend on the
+    system, so the kept image set is the same for every system that has it."""
+    out: dict[str, dict[str, dict[str, str]]] = {}
+    for label, rows in systems.items():
+        kept: dict[str, dict[str, str]] = {}
+        for image_id, row in rows.items():
+            n_ref = _to_float(row.get("n_gt_audioset_tags"))
+            if n_ref is None:
+                raise ValueError(
+                    "--ref-filter needs the n_gt_audioset_tags column, i.e. the "
+                    "per-image CSV written by evaluate_audioset_semantics.py"
+                )
+            if (n_ref > 0) == (mode == "nonempty"):
+                kept[image_id] = row
+        out[label] = kept
+    return out
 
 
 def detect_default_metrics(systems: dict[str, dict[str, dict[str, str]]]) -> list[str]:
@@ -325,7 +357,7 @@ def ci_summary(
 
     for label, rows in systems.items():
         image_ids = image_ids_by_system[label]
-        has_counts = all(
+        has_counts = bool(rows) and all(
             col in next(iter(rows.values()))
             for col in ("n_gt_audioset_tags", "n_pred_audioset_tags")
         )
@@ -495,10 +527,18 @@ def markdown_summary(
     n_boot: int,
     holm_family: str,
     n_common: int | None,
+    ref_filter: str = "all",
 ) -> str:
     lines: list[str] = []
     pct = int(round(ci * 100))
     lines.append(f"# Bootstrap summary ({pct}% percentile CI, B = {n_boot})\n")
+    if ref_filter == "nonempty":
+        lines.append("Only images with a NON-EMPTY pseudo-reference (something to find).\n")
+    elif ref_filter == "empty":
+        lines.append(
+            "Only images with an EMPTY pseudo-reference: every metric is 1.0 when the "
+            "system predicted nothing and 0.0 otherwise, so means are abstention rates.\n"
+        )
     if n_common is not None:
         lines.append(f"All systems restricted to the {n_common} images they have in common.\n")
 
@@ -506,7 +546,8 @@ def markdown_summary(
     has_empty = any("n_empty_ref" in r for r in ci_rows)
     header = ["system", "metric", "n", "mean", f"{pct}% CI"]
     if has_empty:
-        header += ["n empty ref", "n empty both", "mean (non-empty ref)", "mean (excl. empty-both)"]
+        header += ["n empty ref", "n empty pred", "n empty both",
+                   "mean (non-empty ref)", "mean (excl. empty-both)"]
     lines.append("| " + " | ".join(header) + " |")
     lines.append("|" + "---|" * len(header))
     for r in ci_rows:
@@ -518,7 +559,7 @@ def markdown_summary(
         ]
         if has_empty:
             cells += [
-                _fmt(r.get("n_empty_ref")), _fmt(r.get("n_empty_both")),
+                _fmt(r.get("n_empty_ref")), _fmt(r.get("n_empty_pred")), _fmt(r.get("n_empty_both")),
                 _fmt(r.get("mean_nonempty_ref")), _fmt(r.get("mean_excl_empty_both")),
             ]
         lines.append("| " + " | ".join(cells) + " |")
@@ -608,10 +649,18 @@ def main(argv: list[str] | None = None) -> None:
         help="Family for the Holm correction: all (metric, pair) tests together "
              "(default, conservative) or one family per metric.",
     )
+    parser.add_argument(
+        "--ref-filter", choices=["all", "nonempty", "empty"], default="all",
+        help="AudioSet per-image CSVs only. 'nonempty': keep images whose "
+             "pseudo-reference has at least one node. 'empty': keep images with an "
+             "empty pseudo-reference (means become abstention rates). Default: all.",
+    )
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args(argv)
 
     systems = load_systems(args.per_image)
+    if args.ref_filter != "all":
+        systems = filter_by_reference(systems, args.ref_filter)
     metrics = args.metrics or detect_default_metrics(systems)
     strata = load_strata(Path(args.strata_csv)) if args.strata_csv else None
     rng = np.random.default_rng(args.seed)
@@ -643,7 +692,9 @@ def main(argv: list[str] | None = None) -> None:
     write_csv(ci_rows, output_dir / "ci_summary.csv")
     if cmp_rows:
         write_csv(cmp_rows, output_dir / "paired_comparisons.csv")
-    summary = markdown_summary(ci_rows, cmp_rows, args.ci, args.n_boot, args.holm_family, n_common)
+    summary = markdown_summary(
+        ci_rows, cmp_rows, args.ci, args.n_boot, args.holm_family, n_common, args.ref_filter
+    )
     (output_dir / "summary.md").write_text(summary, encoding="utf-8")
     print(summary)
     print(f"[OK] written to {output_dir}")
