@@ -73,6 +73,8 @@
   .scale { border-collapse: collapse; width: 100%; margin: 8px 0 4px; font-size: 14.5px; }
   .scale th, .scale td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
   .small { font-size: 13.5px; color: var(--muted); }
+  .small.bad { color: var(--bad); font-weight: 600; margin: 0; }
+  .small.bad:empty { display: none; }
   .done-box { max-width: 640px; margin: 8vh auto; text-align: center; }
 </style>
 </head>
@@ -92,9 +94,10 @@
 
 <dialog id="help">
   <h2>Instrucciones</h2>
-  <p>En cada imagen hay dos tareas. No hay respuestas correctas ni trampas: interesa tu juicio.</p>
-  <p><strong>1. Objetos.</strong> Para cada objeto de la lista, indica si <em>se ve</em> en la imagen. Usa «Dudoso» si no se distingue bien.</p>
-  <p><strong>2. Sonidos.</strong> Imagina una grabación de unos 10 segundos hecha <em>en el lugar y en el momento de la foto</em>. Para cada sonido, ¿se oiría?</p>
+  <p>En cada imagen hay varias tareas. No hay respuestas correctas ni trampas: interesa tu juicio.</p>
+  <p id="help-scenes"><strong>Lugar.</strong> Verás una o varias etiquetas de tipo de lugar, en inglés (por ejemplo «kitchen» o «street»). Para cada una, indica si describe el lugar de la foto: «Sí» si es ese tipo de lugar; «En parte» si se le parece o solo describe una parte de la foto; «No» si es otro tipo de lugar.</p>
+  <p><strong>Objetos.</strong> Para cada objeto de la lista, indica si <em>se ve</em> en la imagen. Usa «Dudoso» si no se distingue bien.</p>
+  <p><strong>Sonidos.</strong> Imagina una grabación de unos 10 segundos hecha <em>en el lugar y en el momento de la foto</em>. Para cada sonido, ¿se oiría?</p>
   <table class="scale">
     <tr><th>Sí</th><td>Casi seguro que se oiría: la fuente está en la imagen y está sonando o haciendo lo que lo produce.</td></tr>
     <tr><th>Posible</th><td>Podría oírse, pero la imagen no lo asegura: la fuente está y podría estar sonando.</td></tr>
@@ -109,7 +112,7 @@
     <li><strong>Otro:</strong> cualquier otro motivo.</li>
   </ul>
   <p class="small">Juzga solo lo que muestra la imagen, no lo que suele pasar en sitios parecidos. Los nombres de los sonidos están en inglés; debajo de cada uno hay una descripción. Puedes pulsar la imagen para ampliarla. El progreso se guarda en este navegador, pero descarga una copia de seguridad al terminar cada sesión.</p>
-  <form method="dialog"><button class="btn primary">Entendido</button></form>
+  <p><button class="btn primary" type="button" id="btn-help-close">Entendido</button></p>
 </dialog>
 
 <script id="study-data" type="application/json">__STUDY_JSON__</script>
@@ -124,6 +127,8 @@ const REASONS = [
   { v: "place", t: "No encaja con el lugar" }, { v: "other", t: "Otro" },
 ];
 const SEEN = [ { v: "yes", t: "Sí" }, { v: "no", t: "No" }, { v: "unsure", t: "Dudoso" } ];
+const PLACE = [ { v: "yes", t: "Sí" }, { v: "partly", t: "En parte" }, { v: "no", t: "No" } ];
+const HAS_SCENES = STUDY.images.some((im) => (im.scenes || []).length > 0);
 const MAX_VISIT_SECONDS = 300;   // tope por visita, para no contar pausas largas
 
 let state = null;        // { annotator, started, answers: { image_id: {objects, sounds, seconds, done} } }
@@ -188,11 +193,13 @@ function csvCell(value) {
 
 // ---------- modelo ----------
 function answerFor(image) {
-  if (!state.answers[image.image_id]) state.answers[image.image_id] = { objects: {}, sounds: {}, seconds: 0, done: false };
+  if (!state.answers[image.image_id]) state.answers[image.image_id] = { scenes: {}, objects: {}, sounds: {}, seconds: 0, done: false };
+  if (!state.answers[image.image_id].scenes) state.answers[image.image_id].scenes = {};
   return state.answers[image.image_id];
 }
 function missingItems(image) {
   const a = answerFor(image), missing = [];
+  for (const label of image.scenes || []) if (!a.scenes[label]) missing.push("c:" + label);
   for (const term of image.objects) if (!a.objects[term]) missing.push("o:" + term);
   for (const s of image.sounds) {
     const r = a.sounds[s.id];
@@ -218,6 +225,8 @@ function exportCsv() {
     const image = STUDY.images[index], a = state.answers[image.image_id];
     if (!a) return;
     const tail = [Math.round(a.seconds), a.done ? 1 : 0];
+    for (const label of image.scenes || [])
+      if (a.scenes && a.scenes[label]) rows.push([STUDY.study_id, state.annotator, position + 1, image.image_id, "scene", label, label, a.scenes[label], ""].concat(tail));
     for (const term of image.objects)
       if (a.objects[term]) rows.push([STUDY.study_id, state.annotator, position + 1, image.image_id, "object", term, term, a.objects[term], ""].concat(tail));
     for (const s of image.sounds) {
@@ -233,23 +242,44 @@ function exportBackup() {
 }
 
 // ---------- pantallas ----------
+// Un servidor que aísla la página (Jupyter lo hace al abrir un .html) bloquea el guardado del
+// progreso, las descargas y los formularios. Ahí no se puede anotar: se avisa en vez de fallar en silencio.
+function isSandboxed() { return location.protocol !== "file:" && window.origin === "null"; }
+function renderBlocked() {
+  document.getElementById("header").hidden = true;
+  document.getElementById("main").replaceChildren(el("div", { class: "card login", id: "blocked" }, [
+    el("h2", { text: "Esta página no se puede usar desde aquí" }),
+    el("p", { text: "Está abierta desde un servidor (por ejemplo, Jupyter) que impide guardar el progreso y descargar los resultados." }),
+    el("p", { text: "Descarga a tu ordenador el paquete completo, descomprímelo y abre este fichero con doble clic, con la carpeta «images» al lado. La dirección del navegador tiene que empezar por file:///" }),
+  ]));
+}
+function showError(message) {
+  let box = document.getElementById("page-error");
+  if (!box) { box = el("div", { class: "banner", id: "page-error", role: "alert" }); document.getElementById("main").before(box); }
+  box.textContent = "Ha ocurrido un error en la página (" + message + "). Si puedes, pulsa «Copia de seguridad», y avisa a quien coordina el estudio.";
+}
+
 function renderLogin(message) {
   document.getElementById("header").hidden = true;
   const input = el("input", { type: "text", id: "annotator", autocomplete: "off", "aria-describedby": "login-help", maxlength: "40" });
   const file = el("input", { type: "file", accept: "application/json,.json", id: "restore" });
-  const form = el("form", { class: "card login", onsubmit: (ev) => {
-    ev.preventDefault();
+  const warn = el("p", { class: "small bad", id: "login-warn", role: "alert" });
+  const begin = () => {
     const name = input.value.trim().replace(/[^A-Za-z0-9_-]/g, "");
-    if (!name) { input.focus(); return; }
+    if (!name) { warn.textContent = "Escribe tu código de anotador para empezar."; input.focus(); return; }
     start(load(name) || { study_id: STUDY.study_id, annotator: name, started: new Date().toISOString(), answers: {} });
-  } }, [
+  };
+  input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); begin(); } });
+  // Sin <form>: el envío de formularios es lo primero que bloquea un navegador que aísla la página.
+  const form = el("div", { class: "card login" }, [
     el("h2", { text: STUDY.title || "Estudio de plausibilidad sonora" }),
     el("p", { class: "question", text: STUDY.images.length + " imágenes. Puedes dejarlo y continuar más tarde en este mismo navegador." }),
     message ? el("div", { class: "banner", text: message }) : null,
     el("label", { for: "annotator", text: "Tu código de anotador" }),
     input,
     el("p", { class: "small", id: "login-help", text: "Solo letras, números, guion y guion bajo (por ejemplo A1). Usa siempre el mismo." }),
-    el("p", {}, el("button", { class: "btn primary", type: "submit", text: "Empezar o continuar" })),
+    warn,
+    el("p", {}, el("button", { class: "btn primary", type: "button", id: "btn-start", text: "Empezar o continuar", onclick: begin })),
     el("hr"),
     el("label", { for: "restore", text: "¿Continúas en otro ordenador? Carga tu copia de seguridad:" }),
     el("p", {}, file),
@@ -297,13 +327,33 @@ function renderImage() {
 
   const img = el("img", { src: image.file, alt: "Imagen " + image.image_id });
   img.addEventListener("click", () => img.classList.toggle("zoomed"));
+  img.addEventListener("error", () => {
+    if (document.getElementById("image-missing")) return;
+    document.getElementById("main").prepend(el("div", { class: "banner", id: "image-missing", role: "alert",
+      text: "No se encuentra la imagen (" + image.file + "). La carpeta «images» tiene que estar junto a este fichero: descomprime el paquete completo antes de abrirlo. No anotes sin ver la imagen." }));
+  });
   const photo = el("div", { class: "card photo" }, [
     el("div", { class: "frame" }, img),
     el("div", { class: "meta" }, [el("span", { text: "Pulsa la imagen para ampliarla" }), el("span", { text: "Imagen " + (pos + 1) + " de " + order.length })]),
   ]);
 
-  const objectSection = el("div", { class: "section" }, [
-    el("h2", { text: "1. Objetos" }),
+  // La sección de lugar solo existe si el estudio trae etiquetas de escena.
+  const scenes = shuffled(image.scenes || [], state.annotator + "|c|" + image.image_id);
+  const first = HAS_SCENES ? 2 : 1;
+  const sceneSection = !HAS_SCENES ? null : el("div", { class: "section", id: "section-scenes" }, [
+    el("h2", { text: "1. Lugar" }),
+    el("p", { class: "question", text: "¿Describe cada etiqueta el tipo de lugar de la foto?" }),
+  ]);
+  if (sceneSection && scenes.length === 0) sceneSection.append(el("p", { class: "small", text: "No hay etiquetas de lugar que comprobar en esta imagen." }));
+  for (const label of scenes) {
+    sceneSection.append(el("div", { class: "item" + (missing.has("c:" + label) ? " missing" : "") }, [
+      el("div", { class: "label", text: label }),
+      choiceGroup("c:" + label, PLACE, a.scenes[label], (v) => { a.scenes[label] = v; changed(image, showMissing); }, "¿Es el lugar " + label + "?"),
+    ]));
+  }
+
+  const objectSection = el("div", { class: "section", id: "section-objects" }, [
+    el("h2", { text: first + ". Objetos" }),
     el("p", { class: "question", text: "¿Se ve cada uno en la imagen?" }),
   ]);
   if (objects.length === 0) objectSection.append(el("p", { class: "small", text: "No hay objetos que comprobar en esta imagen." }));
@@ -314,8 +364,8 @@ function renderImage() {
     ]));
   }
 
-  const soundSection = el("div", { class: "section" }, [
-    el("h2", { text: "2. Sonidos" }),
+  const soundSection = el("div", { class: "section", id: "section-sounds" }, [
+    el("h2", { text: (first + 1) + ". Sonidos" }),
     el("p", { class: "question", text: "En una grabación de unos 10 segundos hecha en el lugar y el momento de la foto, ¿se oiría?" }),
   ]);
   for (const s of sounds) {
@@ -347,7 +397,7 @@ function renderImage() {
                  text: complete ? "Imagen completa" : "Faltan " + missingItems(image).length + " respuestas" }),
   ]);
 
-  const panel = el("div", { class: "card" }, [objectSection, soundSection, nav]);
+  const panel = el("div", { class: "card" }, [sceneSection, objectSection, soundSection, nav]);
   const blocks = [];
   if (!storageOk) blocks.push(el("div", { class: "banner", text: "Este navegador no está guardando el progreso. Descarga una copia de seguridad antes de cerrar." }));
   blocks.push(el("div", { class: "layout" }, [photo, panel]));
@@ -405,10 +455,14 @@ function renderDone() {
 }
 
 document.getElementById("btn-help").addEventListener("click", () => document.getElementById("help").showModal());
+document.getElementById("btn-help-close").addEventListener("click", () => document.getElementById("help").close());
 document.getElementById("btn-export").addEventListener("click", exportCsv);
 document.getElementById("btn-backup").addEventListener("click", exportBackup);
 window.addEventListener("beforeunload", () => { if (state) { stopClock(); save(); } });
-renderLogin();
+document.getElementById("help-scenes").hidden = !HAS_SCENES;
+window.addEventListener("error", (ev) => showError(ev.message || "error desconocido"));
+window.addEventListener("unhandledrejection", (ev) => showError(String((ev.reason && ev.reason.message) || ev.reason)));
+if (isSandboxed()) renderBlocked(); else renderLogin();
 </script>
 </body>
 </html>

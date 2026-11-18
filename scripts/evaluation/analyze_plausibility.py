@@ -17,6 +17,11 @@ reports:
 - for sounds with cited evidence, whether the evidence is in the image and
   whether the sound is plausible, which separates perception errors from rules
   that over-generate;
+- the same precision broken down by the scene group of the sampling strata;
+- when the study has scene labels: for each scene source (Places365
+  classifiers, VLMs), the share of its labels judged right, with paired
+  differences, and whether the automatic scene consistency separates the
+  labels judged right from those judged wrong;
 - per AudioSet node: how often it is judged plausible when it is in the pool;
 - optionally, how the automatic score against pseudo-references relates to the
   score against human judgement, per image and across systems;
@@ -57,6 +62,10 @@ from scripts.evaluation.bootstrap_stats import _fmt, holm, percentile_ci, sign_f
 
 PLAUS_LEVELS = [1, 2, 3, 4]
 SEEN_LEVELS = ["yes", "no", "unsure"]
+PLACE_LEVELS = ["yes", "partly", "no"]
+# Scene labels: two per-image indicators over the images where the source has a
+# judged label.
+SCENE_METRICS = {"accuracy_strict": ("ok_str", "has"), "accuracy_lenient": ("ok_len", "has")}
 REASON_LABELS = {"absent": "no source", "inactive": "source inactive", "place": "does not fit the place", "other": "other"}
 EXTRA_SYSTEMS = ("pseudo_reference", "random_baseline")
 
@@ -158,10 +167,24 @@ def alpha_with_ci(
 # ---------------------------------------------------------------------------
 
 
-def majority(votes: list[bool]) -> tuple[bool, bool]:
-    """(strict-majority outcome, is_tie). A tie counts as False."""
+def majority(votes: list[bool], tie_value: bool = False) -> tuple[bool, bool]:
+    """(outcome, is_tie). A strict majority decides; a tie takes ``tie_value``.
+    With two annotators a tie is a disagreement: ``tie_value=False`` means both
+    must say yes, ``tie_value=True`` means one is enough."""
     yes = sum(votes)
-    return yes * 2 > len(votes), yes * 2 == len(votes)
+    if yes * 2 == len(votes):
+        return tie_value, True
+    return yes * 2 > len(votes), False
+
+
+def auc(positive: np.ndarray, negative: np.ndarray) -> float | None:
+    """Probability that a positive case scores above a negative one (ties
+    count half). 0.5 means the score does not separate the two groups."""
+    if len(positive) == 0 or len(negative) == 0:
+        return None
+    greater = (positive[:, None] > negative[None, :]).sum()
+    equal = (positive[:, None] == negative[None, :]).sum()
+    return float((greater + 0.5 * equal) / (len(positive) * len(negative)))
 
 
 def set_f1(pred: set[str], ref: set[str]) -> float:
@@ -213,8 +236,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--key", required=True, help="key_main.json or key_pilot.json from build_plausibility_pool.py.")
     parser.add_argument("--per-image", default=None,
                         help="Optional AudioSet per-image CSV, to relate the automatic score to the human one.")
+    parser.add_argument("--scene-per-image", default=None,
+                        help="Optional scene per-image CSV, to relate the automatic scene consistency to the human "
+                             "judgement of the scene label.")
+    parser.add_argument("--scene-metric", default="gt_entity_scene_consistency",
+                        help="Column of --scene-per-image to compare with the human judgement.")
     parser.add_argument("--min-annotators", type=int, default=2,
                         help="An image enters the consensus when at least this many annotators completed it.")
+    parser.add_argument("--ties", choices=("negative", "positive"), default="negative",
+                        help="What a tie means. negative (default): not plausible / not present / not correct, so with "
+                             "two annotators both must agree. positive: the opposite, so one is enough. Run both to "
+                             "see how much the results depend on the items the annotators disagree on.")
     parser.add_argument("--compare", action="append", default=[], metavar="A:B",
                         help="Paired comparison A - B between two systems of the key (or pseudo_reference, "
                              "random_baseline). Repeatable. Default: the comparisons of the automatic evaluation.")
@@ -232,8 +264,8 @@ def main(argv: list[str] | None = None) -> None:
 
     # ---- load annotations ---------------------------------------------------
     # ratings[kind][image][item][annotator] = answer ; reasons[image][item][annotator] = reason
-    ratings: dict[str, dict[str, dict[str, dict[str, Any]]]] = {"sound": defaultdict(lambda: defaultdict(dict)),
-                                                                   "object": defaultdict(lambda: defaultdict(dict))}
+    ratings: dict[str, dict[str, dict[str, dict[str, Any]]]] = {
+        kind: defaultdict(lambda: defaultdict(dict)) for kind in ("sound", "object", "scene")}
     reasons: dict[str, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
     names: dict[str, str] = {}
     done: dict[str, set[str]] = defaultdict(set)            # annotator -> images completed
@@ -258,8 +290,8 @@ def main(argv: list[str] | None = None) -> None:
                     # one if the annotator later changes the answer to "Sí"/"Posible".
                     if row.get("reason") and answer >= 3:
                         reasons[image_id][row["item_id"]][annotator] = row["reason"]
-                else:
-                    ratings["object"][image_id][row["item_id"]][annotator] = row["answer"]
+                elif row["kind"] in ("object", "scene"):
+                    ratings[row["kind"]][image_id][row["item_id"]][annotator] = row["answer"]
     if not done:
         raise SystemExit(f"No annotation row matches study {key['study_id']!r} "
                          f"({skipped_other_study} rows belong to another study).")
@@ -270,10 +302,11 @@ def main(argv: list[str] | None = None) -> None:
     for a in annotators:
         sound_answers = [r[a] for img in ratings["sound"].values() for r in img.values() if a in r]
         object_answers = [r[a] for img in ratings["object"].values() for r in img.values() if a in r]
+        scene_answers = [r[a] for img in ratings["scene"].values() for r in img.values() if a in r]
         secs = list(seconds[a].values())
         annotator_rows.append({
             "annotator": a, "images_done": len(done[a]), "sound_judgements": len(sound_answers),
-            "object_checks": len(object_answers), "hours": sum(secs) / 3600,
+            "object_checks": len(object_answers), "scene_labels": len(scene_answers), "hours": sum(secs) / 3600,
             "median_seconds_per_image": statistics.median(secs) if secs else None,
             **{f"share_answer_{lvl}": sound_answers.count(lvl) / len(sound_answers) if sound_answers else None for lvl in PLAUS_LEVELS},
             "share_object_yes": object_answers.count("yes") / len(object_answers) if object_answers else None,
@@ -285,13 +318,19 @@ def main(argv: list[str] | None = None) -> None:
                 for img, items in ratings[kind].items()}
 
     agreement_rows = []
+    has_scenes = any(ratings["scene"].values())
     for label, kind, transform, cats, level in (
         ("sounds: 4-level scale (ordinal)", "sound", lambda v: v, PLAUS_LEVELS, "ordinal"),
         ("sounds: lenient (Sí/Posible vs rest)", "sound", lambda v: v <= 2, [True, False], "nominal"),
         ("sounds: strict (Sí vs rest)", "sound", lambda v: v == 1, [True, False], "nominal"),
         ("objects: yes / no / unsure", "object", lambda v: v, SEEN_LEVELS, "nominal"),
         ("objects: yes vs rest", "object", lambda v: v == "yes", [True, False], "nominal"),
+        ("places: Sí / En parte / No (ordinal)", "scene", lambda v: v, PLACE_LEVELS, "ordinal"),
+        ("places: lenient (Sí/En parte vs No)", "scene", lambda v: v != "no", [True, False], "nominal"),
+        ("places: strict (Sí vs rest)", "scene", lambda v: v == "yes", [True, False], "nominal"),
     ):
+        if kind == "scene" and not has_scenes:
+            continue
         result = alpha_with_ci(units(kind, transform), cats, level, min(args.n_boot, 2000), args.ci, rng)
         agreement_rows.append({"measure": label, "level": level, **result})
     if len(annotators) > 2:                                   # one row per pair, to spot an annotator who reads the scale differently
@@ -310,14 +349,32 @@ def main(argv: list[str] | None = None) -> None:
     lenient: dict[str, dict[str, bool]] = {}
     strict: dict[str, dict[str, bool]] = {}
     present: dict[str, dict[str, bool]] = {}
+    place_strict: dict[str, dict[str, bool]] = {}
+    place_lenient: dict[str, dict[str, bool]] = {}
     consensus_rows, disagreement_rows = [], []
     ties = Counter()
+    tie_value = args.ties == "positive"
     for image_id in images:
         lenient[image_id], strict[image_id], present[image_id] = {}, {}, {}
+        place_strict[image_id], place_lenient[image_id] = {}, {}
+        for label, by_annotator in ratings["scene"][image_id].items():
+            values = list(by_annotator.values())
+            place_strict[image_id][label], tie_s = majority([v == "yes" for v in values], tie_value)
+            place_lenient[image_id][label], tie_l = majority([v != "no" for v in values], tie_value)
+            ties["scene_strict"] += tie_s
+            ties["scene_lenient"] += tie_l
+            consensus_rows.append({
+                "image_id": image_id, "kind": "scene", "item_id": label, "item_name": label, "n_ratings": len(values),
+                "correct_strict": int(place_strict[image_id][label]), "correct_lenient": int(place_lenient[image_id][label]),
+                "tie_strict": int(tie_s), **{f"rating_{a}": by_annotator.get(a, "") for a in annotators},
+            })
+            if len(set(values)) > 1:
+                disagreement_rows.append({"image_id": image_id, "kind": "scene", "item": label,
+                                          **{a: by_annotator.get(a, "") for a in annotators}})
         for item_id, by_annotator in ratings["sound"][image_id].items():
             values = list(by_annotator.values())
-            lenient[image_id][item_id], tie_l = majority([v <= 2 for v in values])
-            strict[image_id][item_id], tie_s = majority([v == 1 for v in values])
+            lenient[image_id][item_id], tie_l = majority([v <= 2 for v in values], tie_value)
+            strict[image_id][item_id], tie_s = majority([v == 1 for v in values], tie_value)
             ties["sound_lenient"] += tie_l
             ties["sound_strict"] += tie_s
             given = [reasons[image_id][item_id][a] for a in by_annotator if a in reasons[image_id][item_id]]
@@ -335,7 +392,7 @@ def main(argv: list[str] | None = None) -> None:
                                           **{a: by_annotator.get(a, "") for a in annotators}})
         for term, by_annotator in ratings["object"][image_id].items():
             values = list(by_annotator.values())
-            present[image_id][term], tie_o = majority([v == "yes" for v in values])
+            present[image_id][term], tie_o = majority([v == "yes" for v in values], tie_value)
             ties["object"] += tie_o
             consensus_rows.append({
                 "image_id": image_id, "kind": "object", "item_id": term, "item_name": term, "n_ratings": len(values),
@@ -398,14 +455,14 @@ def main(argv: list[str] | None = None) -> None:
 
     idx = rng.integers(0, n_img, size=(args.n_boot, n_img))
 
-    def value(a: dict[str, np.ndarray], metric: str) -> float | None:
-        num, den = METRICS[metric]
+    def value(a: dict[str, np.ndarray], metric: str, table: dict[str, tuple[str, str]] = METRICS) -> float | None:
+        num, den = table[metric]
         return ratio(float(a[num].sum()), float(a[den].sum()))
 
-    def samples(a: dict[str, np.ndarray], metric: str) -> np.ndarray:
+    def samples(a: dict[str, np.ndarray], metric: str, table: dict[str, tuple[str, str]] = METRICS) -> np.ndarray:
         """Bootstrap replicates of a ratio of sums over images (NaN when the
         resample leaves the denominator empty)."""
-        num, den = METRICS[metric]
+        num, den = table[metric]
         d = a[den][idx].sum(axis=1)
         return np.where(d > 0, a[num][idx].sum(axis=1) / np.where(d > 0, d, 1.0), np.nan)
 
@@ -458,6 +515,108 @@ def main(argv: list[str] | None = None) -> None:
             comparison_rows.append(row)
     for row, adjusted in zip(comparison_rows, holm([r["p_sign_flip"] for r in comparison_rows])):
         row["p_holm"] = adjusted
+
+    # ---- by scene group (strata of the sample) --------------------------------
+    group_of = [(key_images[i].get("strata") or {}).get("scene_group") for i in images]
+    group_rows = []
+    for group in sorted({g for g in group_of if g}):
+        mask = np.array([g == group for g in group_of])
+        for s in systems:
+            a = {c: v * mask for c, v in arrays[s].items()}
+            group_rows.append({"scene_group": group, "system": s, "n_images": int(a["has"].sum()),
+                               "plausible_sounds_in_pool_per_image": float(pool_size[mask].mean()),
+                               "n_predicted_sounds": int(a["n_pred"].sum()),
+                               "precision_lenient": value(a, "precision_lenient"),
+                               "recall_pool_lenient": value(a, "recall_pool_lenient"),
+                               "f1_human_lenient": value(a, "f1_human_lenient")})
+
+    # ---- scene labels: each source against the human judgement ---------------
+    scene_sources = list(key.get("scene_sources") or {}) if has_scenes else []
+    scene_arrays = {src: {c: np.zeros(n_img) for c in ("has", "ok_str", "ok_len")} for src in scene_sources}
+    scene_unjudged = Counter()
+    for j, image_id in enumerate(images):
+        labels = key_images[image_id].get("scene_labels") or {}
+        for src in scene_sources:
+            label = labels.get(src)
+            if not label:
+                continue                                      # the source has no prediction for this image
+            if label not in place_strict[image_id]:
+                scene_unjudged[src] += 1
+                continue
+            a = scene_arrays[src]
+            a["has"][j] = 1
+            a["ok_str"][j] = place_strict[image_id][label]
+            a["ok_len"][j] = place_lenient[image_id][label]
+    scene_rows = []
+    for src in scene_sources:
+        a = scene_arrays[src]
+        row = {"scene_source": src, "target": key["scene_sources"][src], "n_images": int(a["has"].sum()),
+               "unjudged_labels": scene_unjudged[src]}
+        for name in SCENE_METRICS:
+            row[name] = value(a, name, SCENE_METRICS)
+            row[name + "_ci_low"], row[name + "_ci_high"] = ci_of(samples(a, name, SCENE_METRICS))
+        scene_rows.append(row)
+    scene_comparison_rows = []
+    for i, sa in enumerate(scene_sources):
+        for sb in scene_sources[i + 1:]:
+            both = (scene_arrays[sa]["has"] == 1) & (scene_arrays[sb]["has"] == 1)
+            if not both.any():
+                continue
+            a = {c: v * both for c, v in scene_arrays[sa].items()}
+            b = {c: v * both for c, v in scene_arrays[sb].items()}
+            row = {"source_a": sa, "source_b": sb, "n_images": int(both.sum())}
+            for name in SCENE_METRICS:
+                low, high = ci_of(samples(a, name, SCENE_METRICS) - samples(b, name, SCENE_METRICS))
+                row[name + "_diff"] = value(a, name, SCENE_METRICS) - value(b, name, SCENE_METRICS)
+                row[name + "_ci_low"], row[name + "_ci_high"] = low, high
+                row[name + "_ci_excludes_zero"] = None if low is None else bool(low > 0 or high < 0)
+            row["p_sign_flip_strict"] = sign_flip_pvalue((a["ok_str"] - b["ok_str"])[both], 10000, rng)
+            scene_comparison_rows.append(row)
+    for row, adjusted in zip(scene_comparison_rows, holm([r["p_sign_flip_strict"] for r in scene_comparison_rows])):
+        row["p_holm_strict"] = adjusted
+
+    # Does the automatic scene consistency tell a right label from a wrong one?
+    scene_metric_rows = []
+    if args.scene_per_image and scene_sources:
+        target_of = {target: src for src, target in key["scene_sources"].items()}
+        automatic: dict[str, dict[str, float]] = defaultdict(dict)
+        wanted = set(images)
+        with open(args.scene_per_image, encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                src = target_of.get(f"{row['detector']}/{row['scene_model']}")
+                if src and row["image_id"] in wanted and row.get(args.scene_metric) not in (None, ""):
+                    automatic[src][row["image_id"]] = float(row[args.scene_metric])
+        pooled: dict[str, list[tuple[float, float]]] = {"strict": [], "lenient": []}
+        for src in scene_sources + ["all sources pooled"]:
+            row = {"scene_source": src, "metric": args.scene_metric}
+            for reading, column in (("strict", "ok_str"), ("lenient", "ok_len")):
+                if src == "all sources pooled":
+                    pairs = pooled[reading]
+                else:
+                    a = scene_arrays[src]
+                    pairs = [(automatic[src][i], float(a[column][j])) for j, i in enumerate(images)
+                             if a["has"][j] and i in automatic[src]]
+                    pooled[reading].extend(pairs)
+                right = np.array([x for x, ok in pairs if ok])
+                wrong = np.array([x for x, ok in pairs if not ok])
+                row[f"n_right_{reading}"], row[f"n_wrong_{reading}"] = len(right), len(wrong)
+                row[f"mean_when_right_{reading}"] = float(right.mean()) if len(right) else None
+                row[f"mean_when_wrong_{reading}"] = float(wrong.mean()) if len(wrong) else None
+                row[f"auc_{reading}"] = auc(right, wrong)
+                row[f"auc_{reading}_ci_low"] = row[f"auc_{reading}_ci_high"] = None
+                if src != "all sources pooled" and len(right) and len(wrong):
+                    # one pair per image, so resampling pairs is resampling images
+                    scores = np.array([x for x, _ in pairs])
+                    flags = np.array([bool(ok) for _, ok in pairs])
+                    boots = []
+                    for _ in range(min(args.n_boot, 1000)):
+                        pick = rng.integers(0, len(pairs), len(pairs))
+                        replicate = auc(scores[pick][flags[pick]], scores[pick][~flags[pick]])
+                        if replicate is not None:
+                            boots.append(replicate)
+                    if boots:
+                        row[f"auc_{reading}_ci_low"], row[f"auc_{reading}_ci_high"] = percentile_ci(np.asarray(boots), args.ci)
+            scene_metric_rows.append(row)
 
     reason_rows = []
     for s in systems:
@@ -522,6 +681,14 @@ def main(argv: list[str] | None = None) -> None:
         write_csv(disagreement_rows, out / "disagreements.csv")
     if relation_rows:
         write_csv(relation_rows, out / "automatic_vs_human.csv")
+    if group_rows:
+        write_csv(group_rows, out / "by_scene_group.csv")
+    if scene_rows:
+        write_csv(scene_rows, out / "scene_sources.csv")
+    if scene_comparison_rows:
+        write_csv(scene_comparison_rows, out / "scene_comparisons.csv")
+    if scene_metric_rows:
+        write_csv(scene_metric_rows, out / "scene_metric_vs_human.csv")
 
     pct = int(round(args.ci * 100))
     def with_ci(row: dict[str, Any], name: str) -> str:
@@ -532,17 +699,21 @@ def main(argv: list[str] | None = None) -> None:
         return f"{_fmt(row[name])} [{_fmt(row[name + '_ci_low'])}, {_fmt(row[name + '_ci_high'])}]"
 
     lines = [f"# Human plausibility study: {key['study_id']}\n"]
+    tie_text = ("a tie counts as plausible / present / correct, so with two annotators one is enough" if tie_value
+                else "a tie counts as not plausible / not present / not correct, so with two annotators both must agree")
     lines.append(f"Annotators: {len(annotators)} ({', '.join(annotators)}). Images with at least {args.min_annotators} "
-                 f"complete annotations: {n_img} of {len(key_images)}. Consensus by strict majority; ties count as "
-                 f"not plausible / not present (ties: {ties['sound_lenient']} sounds lenient, {ties['sound_strict']} strict, "
-                 f"{ties['object']} objects). CIs: {pct}% bootstrap over images, B = {args.n_boot}.\n")
+                 f"complete annotations: {n_img} of {len(key_images)}. Consensus by strict majority; {tie_text} "
+                 f"(`--ties {args.ties}`). Ties: {ties['sound_lenient']} sounds on the lenient reading, "
+                 f"{ties['sound_strict']} on the strict one, {ties['object']} objects"
+                 + (f", {ties['scene_strict']} place labels" if has_scenes else "")
+                 + f". CIs: {pct}% bootstrap over images, B = {args.n_boot}.\n")
 
     lines.append("## Annotators\n")
-    lines.append("| annotator | images | sound judgements | object checks | hours | median s/image | Sí | Posible | Improbable | No | objects seen |")
-    lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("| annotator | images | sound judgements | object checks | place labels | hours | median s/image | Sí | Posible | Improbable | No | objects seen |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in annotator_rows:
         lines.append("| " + " | ".join([
-            r["annotator"], str(r["images_done"]), str(r["sound_judgements"]), str(r["object_checks"]),
+            r["annotator"], str(r["images_done"]), str(r["sound_judgements"]), str(r["object_checks"]), str(r["scene_labels"]),
             _fmt(r["hours"], 1), _fmt(r["median_seconds_per_image"], 0),
             *[f"{r[f'share_answer_{lvl}']:.0%}" if r[f"share_answer_{lvl}"] is not None else "—" for lvl in PLAUS_LEVELS],
             f"{r['share_object_yes']:.0%}" if r["share_object_yes"] is not None else "—",
@@ -629,6 +800,60 @@ def main(argv: list[str] | None = None) -> None:
         lines.append("| " + " | ".join([
             r["name"], str(r["n_images_in_pool"]), f"{r['share_plausible_lenient']:.0%}", f"{r['share_plausible_strict']:.0%}",
             _fmt(r["mean_rating"], 2), REASON_LABELS.get(r["most_common_reason"], r["most_common_reason"] or "—")]) + " |")
+
+    if group_rows:
+        shown = [s for s in systems if s != "random_baseline"]
+        lines.append("\n## Precision (lenient) by scene group\n")
+        lines.append(f"Scene group of the sampling strata ({key.get('strata_scene_system') or 'not recorded'}). Groups "
+                     "with few images give unstable figures; `by_scene_group.csv` has the counts behind each cell.\n")
+        lines.append("| scene group | images | plausible sounds per image | " + " | ".join(shown) + " |")
+        lines.append("|---|---|---|" + "---|" * len(shown))
+        cell = {(r["scene_group"], r["system"]): r for r in group_rows}
+        for group in sorted({r["scene_group"] for r in group_rows}):
+            n_group = sum(1 for g in group_of if g == group)
+            lines.append("| " + " | ".join(
+                [group, str(n_group), _fmt(cell[(group, shown[0])]["plausible_sounds_in_pool_per_image"], 1)]
+                + [_fmt(cell[(group, s)]["precision_lenient"], 2) for s in shown]) + " |")
+
+    if scene_rows:
+        lines.append("\n## Scene labels against the human judgement\n")
+        lines.append("Share of images whose predicted scene label was judged right: strict counts only «Sí», lenient "
+                     "also «En parte». Images where the source has no prediction are left out.\n")
+        lines.append("| scene source | images | correct (strict) | correct (lenient) |")
+        lines.append("|---|---|---|---|")
+        for r in scene_rows:
+            lines.append("| " + " | ".join([f"{r['scene_source']} ({r['target']})", str(r["n_images"]),
+                                           with_ci(r, "accuracy_strict"), with_ci(r, "accuracy_lenient")]) + " |")
+        missing_labels = sum(r["unjudged_labels"] for r in scene_rows)
+        if missing_labels:
+            lines.append(f"\n_{missing_labels} predicted labels had no judgement and were left out._")
+    if scene_comparison_rows:
+        lines.append(f"\nPaired differences (A − B) on the images both sources labelled; `*` marks a {pct}% CI that "
+                     "excludes zero; p is a paired sign-flip test on the strict reading, Holm-adjusted.\n")
+        lines.append("| A − B | images | strict | p (Holm) | lenient |")
+        lines.append("|---|---|---|---|---|")
+        for r in scene_comparison_rows:
+            cells = []
+            for name in ("accuracy_strict", "accuracy_lenient"):
+                text = f"{r[name + '_diff']:+.3f}"
+                if r[name + "_ci_low"] is not None:
+                    text += f" [{r[name + '_ci_low']:+.3f}, {r[name + '_ci_high']:+.3f}]" + (" *" if r[name + "_ci_excludes_zero"] else "")
+                cells.append(text)
+            lines.append("| " + " | ".join([f"{r['source_a']} − {r['source_b']}", str(r["n_images"]), cells[0],
+                                           _fmt(r["p_holm_strict"]), cells[1]]) + " |")
+    if scene_metric_rows:
+        lines.append(f"\n## Does the automatic scene metric follow the human judgement? (`{args.scene_metric}`)\n")
+        lines.append("Mean of the automatic score on the images whose label was judged right and on those judged wrong "
+                     "(strict reading), and the AUC: the probability that a right label scores above a wrong one. "
+                     "An AUC of 0.5 means the automatic score does not tell them apart.\n")
+        lines.append(f"| scene source | right | wrong | mean when right | mean when wrong | AUC | {pct}% CI | AUC (lenient) |")
+        lines.append("|---|---|---|---|---|---|---|---|")
+        for r in scene_metric_rows:
+            ci_text = (f"[{_fmt(r['auc_strict_ci_low'])}, {_fmt(r['auc_strict_ci_high'])}]"
+                       if r["auc_strict_ci_low"] is not None else "—")
+            lines.append("| " + " | ".join([
+                r["scene_source"], str(r["n_right_strict"]), str(r["n_wrong_strict"]), _fmt(r["mean_when_right_strict"]),
+                _fmt(r["mean_when_wrong_strict"]), _fmt(r["auc_strict"]), ci_text, _fmt(r["auc_lenient"])]) + " |")
 
     if relation_rows:
         lines.append("\n## Automatic score (pseudo-reference) vs human score, same images\n")

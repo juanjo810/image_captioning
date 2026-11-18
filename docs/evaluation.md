@@ -323,7 +323,7 @@ python -m scripts.evaluation.scene_weight_sensitivity \
 
 ## Estudio humano de plausibilidad
 
-Todo lo anterior mide acuerdo con pseudo-referencias derivadas con las mismas reglas que usan los sistemas. La referencia independiente es un estudio de anotación humana: `build_plausibility_pool.py` prepara el paquete para los anotadores y `analyze_plausibility.py` calcula el acuerdo entre anotadores, el consenso y las métricas por sistema contra ese consenso. Protocolo, guía para anotadores y comandos: [plausibility_study.md](plausibility_study.md).
+Todo lo anterior mide acuerdo con pseudo-referencias derivadas con las mismas reglas que usan los sistemas. La referencia independiente es un estudio de anotación humana: `build_plausibility_pool.py` prepara el paquete para los anotadores, `sample_representativeness.py` comprueba que la muestra de imágenes es típica del conjunto de evaluación y `analyze_plausibility.py` calcula el acuerdo entre anotadores, el consenso y las métricas por sistema contra ese consenso. Protocolo, guía para anotadores y comandos: [plausibility_study.md](plausibility_study.md).
 
 ## Nota sobre Visual Genome
 
