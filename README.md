@@ -257,6 +257,7 @@ AudioSet se usa como ontología canónica para pseudo-referencias acústico-sem�
 - [Workflow B](docs/workflow_b.md)
 - [AudioSet](docs/audioset.md)
 - [Evaluation](docs/evaluation.md)
+- [Estudio humano de plausibilidad](docs/plausibility_study.md)
 - [Data and manifests](docs/data_and_manifests.md)
 - [Repository structure](docs/repository_structure.md)
 - [Legacy](docs/legacy.md)

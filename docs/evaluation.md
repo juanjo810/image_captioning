@@ -321,6 +321,10 @@ python -m scripts.evaluation.scene_weight_sensitivity \
 
 `summary.md` reporta la fracción de sorteos que conservan el ranking por defecto, la estabilidad de cada par adyacente, la distribución de Kendall τ-a respecto al ranking por defecto y el rango de la métrica por sistema; `conditions.csv` y `draws.csv` tienen el detalle. `conditions.csv` lleva siempre las dos métricas; el ranking, los sorteos y el resumen siguen la elegida con `--target`.
 
+## Estudio humano de plausibilidad
+
+Todo lo anterior mide acuerdo con pseudo-referencias derivadas con las mismas reglas que usan los sistemas. La referencia independiente es un estudio de anotación humana: `build_plausibility_pool.py` prepara el paquete para los anotadores y `analyze_plausibility.py` calcula el acuerdo entre anotadores, el consenso y las métricas por sistema contra ese consenso. Protocolo, guía para anotadores y comandos: [plausibility_study.md](plausibility_study.md).
+
 ## Nota sobre Visual Genome
 
 Visual Genome no contiene ground truth acústico. Las referencias AudioSet se generan como **pseudo-referencias** proyectando objetos y relaciones visuales sobre la ontología. Usa los términos "AudioSet pseudo-references" o "acoustic-semantic pseudo-references", nunca "ground truth acústico".

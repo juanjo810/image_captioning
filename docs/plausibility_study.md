@@ -71,13 +71,64 @@ El botón «Descargar resultados» genera `plausibility_v1_main_<código>.csv`, 
 | `reason` | Solo con `3` o `4`: `absent`, `inactive`, `place`, `other`. |
 | `image_seconds`, `image_done` | Tiempo acumulado en la imagen y si quedó completa. |
 
+### Analizar
+
+Los CSV que devuelven los anotadores se guardan en una carpeta (por ejemplo `outputs/plausibility_study/results/`) y se analizan con la clave:
+
+```bash
+python -m scripts.evaluation.analyze_plausibility \
+  --annotations outputs/plausibility_study/results/plausibility_v1_pilot_*.csv \
+  --key outputs/plausibility_study/key_pilot.json \
+  --output-dir outputs/plausibility_study/analysis_pilot
+```
+
+Para el estudio se usan `plausibility_v1_main_*.csv` y `key_main.json`, y se añade `--per-image outputs/final_metrics/stats_3000/audioset_per_image.csv` para relacionar la puntuación automática con la humana.
+
+Cómo decide el análisis:
+
+- Solo cuentan las imágenes que el anotador dejó completas.
+- Una imagen entra en el consenso cuando la completaron al menos `--min-annotators` anotadores (2 por defecto; con `1` se pueden mirar los resultados de un solo anotador).
+- El consenso de cada ítem es la mayoría estricta de quienes lo valoraron. Un empate cuenta como no plausible o no presente; el resumen dice cuántos hubo.
+- «Plausible» se lee de dos maneras y se calculan las dos: amplia («Sí» o «Posible») y estricta (solo «Sí»). La amplia es la principal, porque la tarea es proponer sonidos plausibles, no sonidos seguros.
+- Si un sistema no tiene predicción para una imagen (ejecución fallida), esa imagen no cuenta para él. Las comparaciones entre dos sistemas usan las imágenes en que ambos tienen predicción.
+
+Escribe en `--output-dir`:
+
+| Fichero | Contenido |
+| --- | --- |
+| `summary.md` | Todas las tablas. |
+| `annotators.csv` | Imágenes completadas, tiempo y distribución de respuestas de cada anotador. |
+| `agreement.csv` | Alfa de Krippendorff con su intervalo: escala de cuatro niveles (ordinal), sus dos lecturas binarias y presencia de objetos. Con tres o más anotadores, también por pares. |
+| `items_consensus.csv` | Una fila por ítem, con la respuesta de cada anotador y el consenso. |
+| `systems.csv` | Métricas por sistema con intervalos. Incluye `pseudo_reference` (la pseudo-referencia puntuada como un sistema más) y `random_baseline` (los sonidos al azar). |
+| `comparisons.csv` | Diferencias pareadas entre sistemas. Por defecto, las mismas comparaciones que la evaluación automática; `--compare A:B` las sustituye. |
+| `reasons.csv` | Motivos de los sonidos predichos que se juzgaron no plausibles. |
+| `nodes.csv` | Por nodo AudioSet: en cuántas imágenes estuvo en el pool y cuántas veces se juzgó plausible. |
+| `disagreements.csv` | Ítems en que los anotadores no coinciden. Es lo que se revisa tras el piloto. |
+| `automatic_vs_human.csv` | Solo con `--per-image`: F1 contra pseudo-referencia y F1 contra el consenso humano por sistema, y su correlación por imagen. |
+
+### Criterio para pasar del piloto al estudio
+
+Se fija antes de ver los resultados, sobre el alfa de la lectura amplia de los sonidos, que es la principal:
+
+| Alfa | Qué se hace |
+| --- | --- |
+| 0,67 o más | Se pasa al estudio. La guía solo se toca para aclarar casos concretos. |
+| Entre 0,50 y 0,67 | Se revisan los desacuerdos con los anotadores, se aclara la guía y se repite el piloto con imágenes nuevas. |
+| Menos de 0,50 | La pregunta o la escala no funcionan. Se rediseñan antes de seguir. |
+
+Krippendorff propone 0,80 como umbral de fiabilidad y 0,667 como mínimo para sacar conclusiones tentativas. Con 30 imágenes el intervalo del alfa es ancho, así que el valor se lee junto a su intervalo. El alfa por pares sirve para detectar a un anotador que usa la escala de otra manera que el resto.
+
 ### Qué se reporta
 
-- Precisión validada por humanos de cada sistema: proporción de sus nodos juzgados plausibles, con el umbral estricto (solo «Sí») y con el amplio («Sí» o «Posible»).
+- F1 contra el consenso humano: media por imagen del F1 entre los nodos predichos y los sonidos del pool juzgados plausibles, con la misma convención que la métrica automática (predicción y referencia vacías cuentan 1).
+- Precisión validada por humanos de cada sistema: proporción de sus nodos juzgados plausibles, con la lectura amplia y con la estricta.
 - Cobertura: proporción de los sonidos plausibles del pool que cada sistema recupera. El pool solo contiene lo que propuso algún sistema o la pseudo-referencia, así que es una cota superior de la cobertura real y hay que decirlo.
+- Abstención: en las imágenes donde ningún sonido del pool se juzgó plausible, proporción en que el sistema no predice nada.
 - Fidelidad de la evidencia: proporción de nodos cuyos términos citados se ven en la imagen.
+- Origen de los errores: cruce entre evidencia vista y sonido plausible. Separa los errores de percepción (el objeto citado no está en la imagen) de las reglas que sobregeneran (el objeto está, pero el sonido no es plausible).
 - Validez de la pseudo-referencia: proporción de sus nodos juzgados plausibles, y correlación por imagen entre el F1 contra pseudo-referencia y el F1 contra el juicio humano.
-- Motivos de implausibilidad por sistema y por regla (fuente ausente, inactiva, lugar).
+- Motivos de implausibilidad por sistema y por nodo (fuente ausente, inactiva, lugar).
 - Línea base: tasa de plausibilidad de los sonidos aleatorios.
 
 Los intervalos de confianza se calculan remuestreando imágenes, no juicios, porque los nodos de una misma imagen no son independientes.
