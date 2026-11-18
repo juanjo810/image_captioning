@@ -11,6 +11,10 @@ the evaluation scripts work on it unchanged.
 With --with-deterministic, the same loop also writes a second output where
 nodes come from applying Workflow B's leaf rules to the same visual_terms in
 Python, with no VLM involved, to --deterministic-output-dir.
+
+With --deterministic-only, only that second output is written: no VLM call is
+made and no server is contacted, so --output-dir is not needed and the result
+goes to --deterministic-output-dir (default: <source-dir>_deterministic).
 """
 
 from __future__ import annotations
@@ -159,8 +163,20 @@ def main() -> None:
         help="Existing call_mode=five output directory (with json/, raw/, manifests/). Read only.",
     )
     parser.add_argument(
-        "--output-dir", required=True,
-        help="Where the rule-guided (VLM) call-4 outputs are written. Must not be --source-dir.",
+        "--output-dir", default=None,
+        help=(
+            "Where the rule-guided (VLM) call-4 outputs are written. Must not be "
+            "--source-dir. Required unless --deterministic-only is given."
+        ),
+    )
+    parser.add_argument(
+        "--deterministic-only", action="store_true",
+        help=(
+            "Skip the VLM call entirely and write only the deterministic projection "
+            "(leaf rules applied in Python to the source visual_terms). No server is "
+            "needed. Output goes to --deterministic-output-dir, by default a sibling "
+            "of --source-dir named <source-dir>_deterministic."
+        ),
     )
     parser.add_argument(
         "--with-deterministic", action="store_true",
@@ -172,7 +188,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--deterministic-output-dir", default=None,
-        help="Defaults to a sibling of --output-dir named <output-dir>_deterministic.",
+        help=(
+            "Defaults to a sibling of --output-dir named <output-dir>_deterministic "
+            "(or of --source-dir with --deterministic-only)."
+        ),
     )
     parser.add_argument("--server-url", default="http://localhost:8889")
     parser.add_argument("--model-id", default="local-vlm")
@@ -196,15 +215,25 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.deterministic_only:
+        args.with_deterministic = True
+        if args.output_dir is not None:
+            parser.error("--output-dir is not used with --deterministic-only")
+    elif args.output_dir is None:
+        parser.error("--output-dir is required unless --deterministic-only is given")
+
     source_dir = Path(args.source_dir)
-    output_dir = Path(args.output_dir)
-    dirs_to_check = {"source-dir": source_dir, "output-dir": output_dir}
+    output_dir = Path(args.output_dir) if args.output_dir is not None else None
+    dirs_to_check = {"source-dir": source_dir}
+    if output_dir is not None:
+        dirs_to_check["output-dir"] = output_dir
     deterministic_dir: Path | None = None
     if args.with_deterministic:
+        default_parent = output_dir if output_dir is not None else source_dir
         deterministic_dir = (
             Path(args.deterministic_output_dir)
             if args.deterministic_output_dir
-            else output_dir.with_name(output_dir.name + "_deterministic")
+            else default_parent.with_name(default_parent.name + "_deterministic")
         )
         dirs_to_check["deterministic-output-dir"] = deterministic_dir
     check_dirs_are_disjoint(dirs_to_check)
@@ -233,21 +262,25 @@ def main() -> None:
     allowed_audioset_nodes = default_allowed_audioset_nodes()
     allowed_scene_labels = allowed_places365_labels()
     source_image_paths = load_source_image_paths(source_dir)
-    adapter = LlamaCppServerAdapter(
-        model_id=args.model_id,
-        base_url=args.server_url,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        seed=args.seed,
-    )
-    # The source metadata (calls 1-3, 5) keeps its own generation_params; the
-    # re-run records the call-4 sampling configuration separately so both
-    # are reportable.
-    call4_generation_params = {
-        "max_new_tokens": args.max_new_tokens,
-        **adapter.sampling_params,
-    }
-    call4_server_info = adapter.server_info()
+    adapter: LlamaCppServerAdapter | None = None
+    call4_generation_params: dict[str, Any] = {}
+    call4_server_info: dict[str, Any] = {}
+    if not args.deterministic_only:
+        adapter = LlamaCppServerAdapter(
+            model_id=args.model_id,
+            base_url=args.server_url,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            seed=args.seed,
+        )
+        # The source metadata (calls 1-3, 5) keeps its own generation_params; the
+        # re-run records the call-4 sampling configuration separately so both
+        # are reportable.
+        call4_generation_params = {
+            "max_new_tokens": args.max_new_tokens,
+            **adapter.sampling_params,
+        }
+        call4_server_info = adapter.server_info()
 
     llm_failed: list[str] = []
     deterministic_failed: list[str] = []
@@ -277,7 +310,9 @@ def main() -> None:
             "call4_server_info": call4_server_info,
         }
 
-        if (output_dir / "json" / f"{image_id}.json").exists():
+        if args.deterministic_only:
+            pass  # no VLM call: only the deterministic projection below
+        elif (output_dir / "json" / f"{image_id}.json").exists():
             print(f"{image_id}: LLM output already exists, skipped")
         else:
             print(f"{image_id}: call 4 (LLM, leaf rules)")
@@ -367,7 +402,8 @@ def main() -> None:
     print(f"\nProcessed {len(image_ids)} image(s) from {source_json_dir}")
     if failed_only_ids:
         print(f"Skipped (only in source failed/, no calls 1-3 to reuse): {failed_only_ids}")
-    print(f"LLM failures: {llm_failed or 'none'}")
+    if not args.deterministic_only:
+        print(f"LLM failures: {llm_failed or 'none'}")
     if deterministic_dir is not None:
         print(f"Deterministic failures: {deterministic_failed or 'none'}")
 

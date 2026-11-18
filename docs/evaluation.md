@@ -280,6 +280,30 @@ python -m scripts.evaluation.bootstrap_stats \
 
 Mantén la lista de `--compare` corta y decidida de antemano: cada par entra en la corrección múltiple.
 
+## Varianza entre ejecuciones (semillas)
+
+Workflow A muestrea de un VLM: una ejecución es una sola extracción. `seed_variance.py` cuantifica cuánto se mueve un resultado entre ejecuciones de la misma configuración (un *brazo*: mismo modelo y sampling, distinta semilla) y compara brazos entre sí. Trabaja sobre el CSV por imagen de AudioSet:
+
+```bash
+python -m scripts.evaluation.seed_variance \
+  --per-image outputs/seeds_500/audioset_per_image.csv \
+  --manifest outputs/seeds_500/manifest.csv \
+  --seeds 1 2 3 \
+  --arm "gemma_paper=unknown/gemma4_paper_seed{seed}_deterministic/template" \
+  --arm "qwen_paper=unknown/qwen36_paper_seed{seed}_deterministic/template" \
+  --compare qwen_paper:gemma_paper \
+  --n-images 500 --output-dir outputs/seeds_500/stats_deterministic
+```
+
+- `--arm NOMBRE=ETIQUETAS`: lista separada por comas o un patrón con `{seed}` que se expande con `--seeds`. Un brazo puede tener una sola ejecución (p. ej. un detector determinista traído de otra evaluación con un segundo `--per-image`): no tiene dispersión entre semillas, pero se puede comparar.
+- Todas las cifras usan las imágenes que tienen **todas** las ejecuciones de todos los brazos; el número de imágenes propio de cada ejecución (y la tasa de fallo, con `--n-images`) se reporta aparte.
+- Por ejecución y por brazo, la métrica se da sobre todas las imágenes, sobre las de pseudo-referencia no vacía y sobre las de pseudo-referencia vacía (tasa de abstención), con media, desviación típica, mínimo y máximo entre ejecuciones.
+- Estabilidad: Jaccard medio entre los conjuntos de nodos que dos ejecuciones predicen para la misma imagen y proporción de imágenes con conjuntos idénticos. Sirve también como prueba de consistencia de las explicaciones.
+- `--compare A:B`: diferencia de la métrica promediada por imagen sobre las ejecuciones de cada brazo, con IC bootstrap pareado y test de permutación, más el rango de esa diferencia sobre todos los emparejamientos semilla-contra-semilla (si cambia de signo, la conclusión depende de qué semillas se comparen).
+- Con `--manifest` añade cuántos términos nombró el modelo y cuántos sobrevivieron al mapeo, leídos del `metadata` de cada predicción.
+
+La proyección determinista de cada ejecución se obtiene sin servidor con `python -m scripts.rerun_workflow_a_call4 --source-dir <run> --deterministic-only`, que escribe `<run>_deterministic`. Al construir el manifest, pasa a `build_prediction_manifest.py` los subdirectorios `json/` de cada ejecución, no el directorio de la ejecución: con este último también recogería `failed/*.json` y `retry_report.json` como si fueran predicciones.
+
 ## Sensibilidad de la métrica de escena a los pesos
 
 Las dos métricas de consistencia de escena ponderan cada familia de entidades con un peso fijado a mano (`FAMILY_WEIGHTS`, en [0.35, 1.00]). `scene_weight_sensitivity.py` comprueba si el **ranking** de sistemas depende de esos valores. Con `--target gt` (por defecto) analiza `gt_entity_scene_consistency`: la proporción ponderada de objetos de referencia de Visual Genome cuya familia es esperable en el grupo de escena que predijo el sistema. Solo depende de la etiqueta de escena predicha, así que evalúa el paso de escena (Places365 en Workflow B, las llamadas de escena del VLM en Workflow A), no las entidades detectadas ni los nodos AudioSet; por eso dos sistemas que comparten predicción de escena empatan exactamente y conviene pasar con `--systems` uno por cada fuente de escena distinta. Con `--target pred` analiza `pred_entity_scene_consistency`, la misma puntuación sobre la evidencia del propio sistema, que vale 0 cuando no hay ningún nodo predicho. Los sistemas se restringen a las imágenes que comparten. Lee una vez los JSON del manifest y recalcula solo la puntuación ponderada bajo: pesos por defecto (comprobación: reproduce `family_evidence_score` exactamente), pesos uniformes, permutaciones de los pesos entre familias, leave-one-family-out y `--n-draws` vectores aleatorios en `[--weight-min, --weight-max]`.
