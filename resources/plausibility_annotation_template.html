@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estudio de plausibilidad sonora</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #5d6778; --line: #d9dee7;
+    --accent: #1f5fbf; --accent-ink: #ffffff; --ok: #1d7a46; --warn: #a15c00; --bad: #b3261e;
+    --chip: #eef1f6; --focus: #f2a900;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --panel: #1d2128; --ink: #e8ebf0; --muted: #a2abb9; --line: #343b47;
+      --accent: #6aa5ff; --accent-ink: #0b1220; --ok: #5fcf8f; --warn: #f0b35a; --bad: #ff8a80;
+      --chip: #272d37; --focus: #ffd060;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+           padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  header h1 { font-size: 17px; margin: 0; }
+  header .who { color: var(--muted); font-size: 14px; }
+  header .spacer { flex: 1 1 auto; }
+  .btn { background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  progress { width: 160px; height: 10px; accent-color: var(--accent); }
+  main { max-width: 1500px; margin: 0 auto; padding: 16px; }
+  .banner { background: #fff3cd; color: #5c4400; border: 1px solid #e6c96a; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .login { max-width: 560px; margin: 8vh auto; }
+  .login input[type=text] { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+  .photo { position: sticky; top: 70px; }
+  @media (max-width: 980px) { .photo { position: static; } }
+  .photo .frame { overflow: auto; max-height: calc(100vh - 150px); border-radius: 8px; background: #000; text-align: center; }
+  .photo img { max-width: 100%; max-height: calc(100vh - 160px); display: block; margin: 0 auto; cursor: zoom-in; }
+  .photo img.zoomed { max-width: none; max-height: none; cursor: zoom-out; }
+  .photo .meta { color: var(--muted); font-size: 13px; margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; }
+  h2 { font-size: 17px; margin: 0 0 4px; }
+  .question { color: var(--muted); margin: 0 0 12px; font-size: 14.5px; }
+  .section + .section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .item { padding: 10px 0; border-bottom: 1px dashed var(--line); }
+  .item:last-child { border-bottom: 0; }
+  .item.missing { background: linear-gradient(90deg, rgba(179,38,30,.10), transparent 60%); }
+  .item .label { font-weight: 600; }
+  .item .desc { color: var(--muted); font-size: 13.5px; margin: 2px 0 8px; }
+  .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+  .choices label { position: relative; }
+  .choices input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+  .choices span { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+                  background: var(--chip); cursor: pointer; user-select: none; font-size: 14.5px; }
+  .choices input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .choices input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .reasons { margin-top: 8px; padding-left: 10px; border-left: 3px solid var(--line); }
+  .reasons .why { font-size: 13.5px; color: var(--muted); margin-bottom: 5px; }
+  .reasons .choices span { font-size: 13.5px; padding: 4px 10px; }
+  .nav { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+  .nav .status { color: var(--muted); font-size: 14px; }
+  .nav .status.ok { color: var(--ok); font-weight: 600; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 760px; width: calc(100% - 32px); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h2 { margin-top: 0; }
+  dialog li { margin-bottom: 6px; }
+  .scale { border-collapse: collapse; width: 100%; margin: 8px 0 4px; font-size: 14.5px; }
+  .scale th, .scale td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .small { font-size: 13.5px; color: var(--muted); }
+  .done-box { max-width: 640px; margin: 8vh auto; text-align: center; }
+</style>
+</head>
+<body>
+<header id="header" hidden>
+  <h1>Plausibilidad sonora</h1>
+  <span class="who" id="who"></span>
+  <span class="spacer"></span>
+  <progress id="bar" value="0" max="1" aria-label="Imágenes completadas"></progress>
+  <span id="count" class="who"></span>
+  <button class="btn" id="btn-help" type="button">Instrucciones</button>
+  <button class="btn" id="btn-export" type="button">Descargar resultados</button>
+  <button class="btn" id="btn-backup" type="button">Copia de seguridad</button>
+</header>
+
+<main id="main"></main>
+
+<dialog id="help">
+  <h2>Instrucciones</h2>
+  <p>En cada imagen hay dos tareas. No hay respuestas correctas ni trampas: interesa tu juicio.</p>
+  <p><strong>1. Objetos.</strong> Para cada objeto de la lista, indica si <em>se ve</em> en la imagen. Usa «Dudoso» si no se distingue bien.</p>
+  <p><strong>2. Sonidos.</strong> Imagina una grabación de unos 10 segundos hecha <em>en el lugar y en el momento de la foto</em>. Para cada sonido, ¿se oiría?</p>
+  <table class="scale">
+    <tr><th>Sí</th><td>Casi seguro que se oiría: la fuente está en la imagen y está sonando o haciendo lo que lo produce.</td></tr>
+    <tr><th>Posible</th><td>Podría oírse, pero la imagen no lo asegura: la fuente está y podría estar sonando.</td></tr>
+    <tr><th>Improbable</th><td>Hay algo relacionado, pero no parece que esté sonando en ese momento.</td></tr>
+    <tr><th>No</th><td>Nada en la imagen puede producirlo, o no encaja con el lugar.</td></tr>
+  </table>
+  <p>Si marcas «Improbable» o «No», elige el motivo que mejor lo explique:</p>
+  <ul>
+    <li><strong>No hay fuente:</strong> lo que produciría el sonido no aparece en la imagen.</li>
+    <li><strong>Fuente inactiva:</strong> aparece, pero no está haciendo lo que suena (un coche aparcado, una persona callada).</li>
+    <li><strong>No encaja con el lugar:</strong> el sonido no corresponde a ese sitio o situación.</li>
+    <li><strong>Otro:</strong> cualquier otro motivo.</li>
+  </ul>
+  <p class="small">Juzga solo lo que muestra la imagen, no lo que suele pasar en sitios parecidos. Los nombres de los sonidos están en inglés; debajo de cada uno hay una descripción. Puedes pulsar la imagen para ampliarla. El progreso se guarda en este navegador, pero descarga una copia de seguridad al terminar cada sesión.</p>
+  <form method="dialog"><button class="btn primary">Entendido</button></form>
+</dialog>
+
+<script id="study-data" type="application/json">__STUDY_JSON__</script>
+<script>
+"use strict";
+const STUDY = JSON.parse(document.getElementById("study-data").textContent);
+const PLAUS = [
+  { v: "1", t: "Sí" }, { v: "2", t: "Posible" }, { v: "3", t: "Improbable" }, { v: "4", t: "No" },
+];
+const REASONS = [
+  { v: "absent", t: "No hay fuente" }, { v: "inactive", t: "Fuente inactiva" },
+  { v: "place", t: "No encaja con el lugar" }, { v: "other", t: "Otro" },
+];
+const SEEN = [ { v: "yes", t: "Sí" }, { v: "no", t: "No" }, { v: "unsure", t: "Dudoso" } ];
+const MAX_VISIT_SECONDS = 300;   // tope por visita, para no contar pausas largas
+
+let state = null;        // { annotator, started, answers: { image_id: {objects, sounds, seconds, done} } }
+let order = [];          // índices de STUDY.images en el orden de este anotador
+let pos = 0;             // posición actual dentro de order
+let visitStart = null;
+let storageOk = true;
+let showMissing = false;
+
+// ---------- utilidades ----------
+function hash32(text) {                      // FNV-1a
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+function rng(seed) {                         // mulberry32
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffled(list, seedText) {
+  const out = list.slice(), next = rng(hash32(seedText));
+  for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(next() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; }
+  return out;
+}
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (v === true) node.setAttribute(k, "");
+    else if (v !== false && v != null) node.setAttribute(k, v);
+  }
+  for (const child of [].concat(children || [])) if (child) node.append(child);
+  return node;
+}
+function storageKey(annotator) { return "plaus:" + STUDY.study_id + ":" + annotator; }
+function save() {
+  try { localStorage.setItem(storageKey(state.annotator), JSON.stringify(state)); storageOk = true; }
+  catch (err) { storageOk = false; }
+}
+function load(annotator) {
+  try { const raw = localStorage.getItem(storageKey(annotator)); return raw ? JSON.parse(raw) : null; }
+  catch (err) { storageOk = false; return null; }
+}
+function download(filename, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = el("a", { href: url, download: filename });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function csvCell(value) {
+  const s = value == null ? "" : String(value);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// ---------- modelo ----------
+function answerFor(image) {
+  if (!state.answers[image.image_id]) state.answers[image.image_id] = { objects: {}, sounds: {}, seconds: 0, done: false };
+  return state.answers[image.image_id];
+}
+function missingItems(image) {
+  const a = answerFor(image), missing = [];
+  for (const term of image.objects) if (!a.objects[term]) missing.push("o:" + term);
+  for (const s of image.sounds) {
+    const r = a.sounds[s.id];
+    if (!r || !r.p) missing.push("s:" + s.id);
+    else if ((r.p === "3" || r.p === "4") && !r.reason) missing.push("s:" + s.id);
+  }
+  return missing;
+}
+function refreshDone(image) { answerFor(image).done = missingItems(image).length === 0; }
+function doneCount() { return STUDY.images.filter((im) => state.answers[im.image_id] && state.answers[im.image_id].done).length; }
+function stopClock() {
+  if (visitStart == null) return;
+  const image = STUDY.images[order[pos]];
+  answerFor(image).seconds += Math.min(MAX_VISIT_SECONDS, (Date.now() - visitStart) / 1000);
+  visitStart = null;
+}
+
+// ---------- exportación ----------
+function exportCsv() {
+  stopClock(); visitStart = Date.now();
+  const rows = [["study_id", "annotator", "position", "image_id", "kind", "item_id", "item_name", "answer", "reason", "image_seconds", "image_done"]];
+  order.forEach((index, position) => {
+    const image = STUDY.images[index], a = state.answers[image.image_id];
+    if (!a) return;
+    const tail = [Math.round(a.seconds), a.done ? 1 : 0];
+    for (const term of image.objects)
+      if (a.objects[term]) rows.push([STUDY.study_id, state.annotator, position + 1, image.image_id, "object", term, term, a.objects[term], ""].concat(tail));
+    for (const s of image.sounds) {
+      const r = a.sounds[s.id];
+      if (r && r.p) rows.push([STUDY.study_id, state.annotator, position + 1, image.image_id, "sound", s.id, s.name, r.p, r.reason || ""].concat(tail));
+    }
+  });
+  download(STUDY.study_id + "_" + state.annotator + ".csv", rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n", "text/csv;charset=utf-8");
+}
+function exportBackup() {
+  stopClock(); visitStart = Date.now(); save();
+  download(STUDY.study_id + "_" + state.annotator + "_backup.json", JSON.stringify(state), "application/json");
+}
+
+// ---------- pantallas ----------
+function renderLogin(message) {
+  document.getElementById("header").hidden = true;
+  const input = el("input", { type: "text", id: "annotator", autocomplete: "off", "aria-describedby": "login-help", maxlength: "40" });
+  const file = el("input", { type: "file", accept: "application/json,.json", id: "restore" });
+  const form = el("form", { class: "card login", onsubmit: (ev) => {
+    ev.preventDefault();
+    const name = input.value.trim().replace(/[^A-Za-z0-9_-]/g, "");
+    if (!name) { input.focus(); return; }
+    start(load(name) || { study_id: STUDY.study_id, annotator: name, started: new Date().toISOString(), answers: {} });
+  } }, [
+    el("h2", { text: STUDY.title || "Estudio de plausibilidad sonora" }),
+    el("p", { class: "question", text: STUDY.images.length + " imágenes. Puedes dejarlo y continuar más tarde en este mismo navegador." }),
+    message ? el("div", { class: "banner", text: message }) : null,
+    el("label", { for: "annotator", text: "Tu código de anotador" }),
+    input,
+    el("p", { class: "small", id: "login-help", text: "Solo letras, números, guion y guion bajo (por ejemplo A1). Usa siempre el mismo." }),
+    el("p", {}, el("button", { class: "btn primary", type: "submit", text: "Empezar o continuar" })),
+    el("hr"),
+    el("label", { for: "restore", text: "¿Continúas en otro ordenador? Carga tu copia de seguridad:" }),
+    el("p", {}, file),
+  ]);
+  file.addEventListener("change", () => {
+    const f = file.files[0]; if (!f) return;
+    f.text().then((text) => {
+      const data = JSON.parse(text);
+      if (data.study_id !== STUDY.study_id || !data.annotator || !data.answers) throw new Error("no corresponde a este estudio");
+      start(data);
+    }).catch((err) => renderLogin("No se pudo cargar la copia de seguridad: " + err.message));
+  });
+  document.getElementById("main").replaceChildren(form);
+  input.focus();
+}
+
+function start(loaded) {
+  state = loaded;
+  order = shuffled(STUDY.images.map((_, i) => i), state.annotator + "|" + STUDY.study_id);
+  const firstPending = order.findIndex((i) => !(state.answers[STUDY.images[i].image_id] || {}).done);
+  pos = firstPending === -1 ? 0 : firstPending;
+  save();
+  document.getElementById("header").hidden = false;
+  document.getElementById("who").textContent = "Anotador: " + state.annotator;
+  if (Object.keys(state.answers).length === 0) document.getElementById("help").showModal();
+  renderImage();
+}
+
+function choiceGroup(name, options, current, onPick, legend) {
+  const group = el("div", { class: "choices", role: "radiogroup", "aria-label": legend });
+  for (const opt of options) {
+    const input = el("input", { type: "radio", name: name, value: opt.v, checked: current === opt.v });
+    input.addEventListener("change", () => onPick(opt.v));
+    group.append(el("label", {}, [input, el("span", { text: opt.t })]));
+  }
+  return group;
+}
+
+function renderImage() {
+  const image = STUDY.images[order[pos]];
+  const a = answerFor(image);
+  const missing = new Set(showMissing ? missingItems(image) : []);
+  const sounds = shuffled(image.sounds, state.annotator + "|s|" + image.image_id);
+  const objects = shuffled(image.objects, state.annotator + "|o|" + image.image_id);
+
+  const img = el("img", { src: image.file, alt: "Imagen " + image.image_id });
+  img.addEventListener("click", () => img.classList.toggle("zoomed"));
+  const photo = el("div", { class: "card photo" }, [
+    el("div", { class: "frame" }, img),
+    el("div", { class: "meta" }, [el("span", { text: "Pulsa la imagen para ampliarla" }), el("span", { text: "Imagen " + (pos + 1) + " de " + order.length })]),
+  ]);
+
+  const objectSection = el("div", { class: "section" }, [
+    el("h2", { text: "1. Objetos" }),
+    el("p", { class: "question", text: "¿Se ve cada uno en la imagen?" }),
+  ]);
+  if (objects.length === 0) objectSection.append(el("p", { class: "small", text: "No hay objetos que comprobar en esta imagen." }));
+  for (const term of objects) {
+    objectSection.append(el("div", { class: "item" + (missing.has("o:" + term) ? " missing" : "") }, [
+      el("div", { class: "label", text: term }),
+      choiceGroup("o:" + term, SEEN, a.objects[term], (v) => { a.objects[term] = v; changed(image, showMissing); }, "¿Se ve " + term + "?"),
+    ]));
+  }
+
+  const soundSection = el("div", { class: "section" }, [
+    el("h2", { text: "2. Sonidos" }),
+    el("p", { class: "question", text: "En una grabación de unos 10 segundos hecha en el lugar y el momento de la foto, ¿se oiría?" }),
+  ]);
+  for (const s of sounds) {
+    const r = a.sounds[s.id] || {};
+    const item = el("div", { class: "item" + (missing.has("s:" + s.id) ? " missing" : "") }, [
+      el("div", { class: "label", text: s.name }),
+      s.description ? el("div", { class: "desc", text: s.description }) : null,
+      choiceGroup("s:" + s.id, PLAUS, r.p, (v) => {
+        const cur = a.sounds[s.id] || {};
+        a.sounds[s.id] = { p: v, reason: (v === "3" || v === "4") ? (cur.reason || null) : null };
+        changed(image, true);
+      }, "¿Se oiría " + s.name + "?"),
+    ]);
+    if (r.p === "3" || r.p === "4") {
+      item.append(el("div", { class: "reasons" }, [
+        el("div", { class: "why", text: "¿Por qué?" }),
+        choiceGroup("r:" + s.id, REASONS, r.reason, (v) => { a.sounds[s.id].reason = v; changed(image, showMissing); }, "Motivo para " + s.name),
+      ]));
+    }
+    soundSection.append(item);
+  }
+
+  const complete = missingItems(image).length === 0;
+  const total = doneCount();
+  const nav = el("div", { class: "nav" }, [
+    el("button", { class: "btn", type: "button", text: "← Anterior", disabled: pos === 0, onclick: () => go(pos - 1) }),
+    el("button", { class: "btn primary", type: "button", id: "btn-next", text: pos === order.length - 1 ? "Terminar" : "Siguiente →", onclick: () => next() }),
+    el("span", { class: "status" + (complete ? " ok" : ""), id: "status",
+                 text: complete ? "Imagen completa" : "Faltan " + missingItems(image).length + " respuestas" }),
+  ]);
+
+  const panel = el("div", { class: "card" }, [objectSection, soundSection, nav]);
+  const blocks = [];
+  if (!storageOk) blocks.push(el("div", { class: "banner", text: "Este navegador no está guardando el progreso. Descarga una copia de seguridad antes de cerrar." }));
+  blocks.push(el("div", { class: "layout" }, [photo, panel]));
+  document.getElementById("main").replaceChildren(...blocks);
+
+  document.getElementById("bar").max = order.length;
+  document.getElementById("bar").value = total;
+  document.getElementById("count").textContent = total + " / " + order.length + " completas";
+  visitStart = Date.now();
+}
+
+function changed(image, rerender) {
+  refreshDone(image); save();
+  if (rerender) {
+    const y = window.scrollY, active = document.activeElement && document.activeElement.name, value = document.activeElement && document.activeElement.value;
+    const kept = visitStart; renderImage(); visitStart = kept; window.scrollTo(0, y);
+    if (active) { const again = document.querySelector('input[name="' + CSS.escape(active) + '"][value="' + value + '"]'); if (again) again.focus(); }
+    return;
+  }
+  const missing = missingItems(image).length, status = document.getElementById("status");
+  status.textContent = missing === 0 ? "Imagen completa" : "Faltan " + missing + " respuestas";
+  status.className = "status" + (missing === 0 ? " ok" : "");
+  document.getElementById("bar").value = doneCount();
+  document.getElementById("count").textContent = doneCount() + " / " + order.length + " completas";
+}
+
+function go(target) {
+  stopClock(); save(); showMissing = false;
+  pos = Math.max(0, Math.min(order.length - 1, target));
+  renderImage(); window.scrollTo(0, 0);
+}
+function next() {
+  const image = STUDY.images[order[pos]];
+  if (missingItems(image).length > 0) {
+    showMissing = true; const kept = visitStart; renderImage(); visitStart = kept;
+    const first = document.querySelector(".item.missing"); if (first) first.scrollIntoView({ block: "center" });
+    return;
+  }
+  if (pos === order.length - 1) { stopClock(); save(); renderDone(); return; }
+  go(pos + 1);
+}
+
+function renderDone() {
+  const total = doneCount(), pending = order.length - total;
+  const box = el("div", { class: "card done-box" }, [
+    el("h2", { text: pending === 0 ? "Has terminado. Gracias." : "Quedan " + pending + " imágenes sin completar" }),
+    el("p", { class: "question", text: "Descarga el fichero de resultados y envíalo a la persona que coordina el estudio." }),
+    el("p", {}, el("button", { class: "btn primary", type: "button", text: "Descargar resultados (CSV)", onclick: exportCsv })),
+    el("p", {}, el("button", { class: "btn", type: "button", text: "Volver a las imágenes", onclick: () => {
+      const firstPending = order.findIndex((i) => !(state.answers[STUDY.images[i].image_id] || {}).done);
+      go(firstPending === -1 ? order.length - 1 : firstPending);
+    } })),
+  ]);
+  document.getElementById("main").replaceChildren(box);
+}
+
+document.getElementById("btn-help").addEventListener("click", () => document.getElementById("help").showModal());
+document.getElementById("btn-export").addEventListener("click", exportCsv);
+document.getElementById("btn-backup").addEventListener("click", exportBackup);
+window.addEventListener("beforeunload", () => { if (state) { stopClock(); save(); } });
+renderLogin();
+</script>
+</body>
+</html>
