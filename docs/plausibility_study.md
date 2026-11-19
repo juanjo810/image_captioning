@@ -90,6 +90,7 @@ En el estudio del artículo anotan dos de los autores. Es una limitación y hay 
 - **Anotación independiente.** No comentan casos durante el estudio. Se reporta el acuerdo entre ellos (alfa de Krippendorff).
 - **Línea base de azar.** Los sonidos aleatorios miden cuánto tiende cada anotador a decir que sí: si los juzgan plausibles a menudo, los juicios son laxos.
 - **Regla conservadora.** Con dos anotadores, un sonido cuenta como plausible solo si lo dicen los dos, y lo mismo para objetos y etiquetas de escena. Se reporta también la lectura contraria, en la que basta uno. Cualquier forma de resolver los desacuerdos da un resultado entre esas dos, así que juntas muestran cuánto dependen las conclusiones de los ítems en que no coinciden.
+- **Resultados ocultos hasta el final.** Mientras dura la anotación, los anotadores solo ven el acuerdo y la lista de desacuerdos del piloto. Las tablas por sistema no se les enseñan hasta que los dos han terminado el estudio.
 - **Datos publicados.** Las respuestas de cada anotador se publican con el artículo.
 
 Lo que no se puede descartar: que los dos compartan una idea de qué es plausible que otras personas no tendrían. Afecta a los valores absolutos más que a las comparaciones entre sistemas. Si una tercera persona puede juzgar después solo los ítems en desacuerdo, sin ver las respuestas, se añade sin repetir nada. Es el protocolo con que se etiquetó AudioSet: tres evaluadores por segmento y voto por mayoría, y el tercero solo se pedía cuando los dos primeros no coincidían (Gemmeke et al., 2017, sección 3.1).
@@ -191,6 +192,17 @@ Se fija antes de ver los resultados, sobre el alfa de la lectura amplia de los s
 Krippendorff propone 0,80 como umbral de fiabilidad y 0,667 como mínimo para sacar conclusiones tentativas. Con 30 imágenes el intervalo del alfa es ancho, así que el valor se lee junto a su intervalo. El alfa de objetos y el de etiquetas de escena se miran igual, pero no deciden: si salen bajos, se aclara su parte de la guía.
 
 ### Qué se reporta
+
+Los resultados principales se fijan antes de anotar:
+
+1. Precisión validada por humanos de cada sistema, con la lectura amplia.
+2. Cobertura sobre el pool, que equivale a contar los sonidos plausibles que encuentra cada sistema por imagen.
+3. Fidelidad de la evidencia.
+4. Proporción de etiquetas de escena correctas por fuente.
+
+El F1 contra el consenso humano se reporta como resumen, no como resultado principal. Premia a los sistemas que proponen más sonidos: los sonidos plausibles que solo propone uno entran en el pool y cuentan como fallos de cobertura de los demás. Tampoco es comparable en valor absoluto con el F1 contra pseudo-referencia, porque el conjunto de referencia es otro.
+
+Lista completa:
 
 - F1 contra el consenso humano: media por imagen del F1 entre los nodos predichos y los sonidos del pool juzgados plausibles, con la misma convención que la métrica automática (predicción y referencia vacías cuentan 1).
 - Precisión validada por humanos de cada sistema: proporción de sus nodos juzgados plausibles, con la lectura amplia y con la estricta.
